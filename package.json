@@ -1,0 +1,13 @@
+{
+  "name": "kanban-pool",
+  "version": "1.0.0",
+  "private": true,
+  "description": "个人需求与问题池看板（零依赖 Node 服务）",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=16"
+  }
+}

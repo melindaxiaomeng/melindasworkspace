@@ -1,0 +1,12 @@
+# 本地数据（看板内容由 Northflank 持久卷管理，不入库）
+data/
+
+# 密钥 / 环境变量
+.env
+*.local
+
+# 日志
+*.log
+
+# Node（本项目零依赖，无需提交）
+node_modules/

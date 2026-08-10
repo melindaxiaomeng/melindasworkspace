@@ -1,0 +1,19 @@
+[Unit]
+Description=需求与问题池看板 (Kanban Pool)
+After=network.target
+
+[Service]
+Type=simple
+# 改成你服务器上 kanban-pool 实际放置的目录
+WorkingDirectory=/srv/kanban-pool
+# 改成你服务器上的 node 路径（用 `which node` 查）
+ExecStart=/usr/bin/node /srv/kanban-pool/server.js
+Restart=on-failure
+RestartSec=3
+# 改成运行该服务的系统用户（如 www-data / appuser）
+User=www-data
+# 令牌等敏感配置单独放，权限设为 600
+EnvironmentFile=/etc/kanban-pool.env
+
+[Install]
+WantedBy=multi-user.target

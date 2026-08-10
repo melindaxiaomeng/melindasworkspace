@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>需求与问题池 · 个人看板</title>
+<style>
+  :root {
+    --bg: #f5f6f8;
+    --panel: #ffffff;
+    --ink: #1f2329;
+    --muted: #8a9099;
+    --line: #e6e8eb;
+    --accent: #3b6cff;
+    --col-inbox: #8a6df0;
+    --col-week: #f5a623;
+    --col-doing: #3b6cff;
+    --col-done: #2bbf7a;
+    --pri-high: #e5484d;
+    --pri-mid: #f5a623;
+    --pri-low: #2bbf7a;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    font-size: 14px;
+  }
+  header {
+    display: flex; align-items: center; gap: 16px;
+    padding: 16px 24px; background: var(--panel);
+    border-bottom: 1px solid var(--line);
+    position: sticky; top: 0; z-index: 10;
+  }
+  header h1 { font-size: 18px; margin: 0; font-weight: 650; }
+  header .sub { color: var(--muted); font-size: 12px; }
+  header .spacer { flex: 1; }
+  .stats { display: flex; gap: 14px; align-items: center; }
+  .stat { text-align: center; }
+  .stat b { font-size: 16px; display: block; }
+  .stat span { font-size: 11px; color: var(--muted); }
+  button {
+    font-family: inherit; cursor: pointer; border: none; border-radius: 8px;
+    padding: 8px 14px; font-size: 13px; font-weight: 550;
+  }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:hover { filter: brightness(1.05); }
+
+  /* toolbar / 筛选栏 */
+  .toolbar {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    padding: 10px 24px; background: var(--panel);
+    border-bottom: 1px solid var(--line);
+  }
+  .tb-label { font-size: 12px; color: var(--muted); font-weight: 550; }
+  .toolbar select {
+    padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px;
+    font-family: inherit; font-size: 12.5px; color: var(--ink); background: #fbfbfc;
+  }
+  .toolbar select:focus { outline: none; border-color: var(--accent); }
+  .btn-clear { background: #eef2ff; color: var(--accent); padding: 6px 12px; font-size: 12px; }
+  .btn-clear:hover { filter: brightness(.97); }
+  .tb-info { margin-left: auto; font-size: 12px; color: var(--muted); }
+  .tb-info b { color: var(--accent); }
+
+  .board {
+    display: grid; grid-template-columns: repeat(4, 1fr);
+    gap: 16px; padding: 20px 24px; align-items: start;
+  }
+  @media (max-width: 980px) { .board { grid-template-columns: repeat(2, 1fr); } }
+
+  /* 移动端：横向滑动看板 + 头部/工具栏自适应 */
+  @media (max-width: 600px) {
+    header { flex-wrap: wrap; gap: 8px 12px; padding: 12px 14px; }
+    header .sub { display: none; }
+    header h1 { font-size: 16px; }
+    .stats { order: 3; width: 100%; justify-content: flex-start; gap: 18px; padding-top: 2px; }
+    .toolbar { padding: 10px 14px; gap: 8px; }
+    .toolbar select { flex: 1 1 40%; min-width: 92px; }
+    .tb-label { width: 100%; }
+    .tb-info { width: 100%; margin-left: 0; }
+    .board {
+      display: flex;
+      grid-template-columns: none;
+      overflow-x: auto;
+      scroll-snap-type: x mandatory;
+      -webkit-overflow-scrolling: touch;
+      padding: 14px;
+      gap: 12px;
+    }
+    .column { flex: 0 0 82vw; scroll-snap-align: start; max-height: 76vh; overflow-y: auto; }
+  }
+
+  .column {
+    background: #eef0f3; border-radius: 12px; padding: 10px;
+    min-height: 120px; display: flex; flex-direction: column; gap: 10px;
+  }
+  .column.drag-over { outline: 2px dashed var(--accent); outline-offset: -4px; }
+  .col-head { display: flex; align-items: center; gap: 8px; padding: 4px 6px; }
+  .col-dot { width: 9px; height: 9px; border-radius: 50%; }
+  .col-title { font-weight: 600; font-size: 13px; }
+  .col-count {
+    margin-left: auto; background: #fff; color: var(--muted);
+    border-radius: 20px; padding: 1px 9px; font-size: 11px; font-weight: 600;
+  }
+  .c-inbox .col-dot { background: var(--col-inbox); }
+  .c-week  .col-dot { background: var(--col-week); }
+  .c-doing .col-dot { background: var(--col-doing); }
+  .c-done  .col-dot { background: var(--col-done); }
+
+  .cards { display: flex; flex-direction: column; gap: 8px; min-height: 8px; }
+
+  .card {
+    background: var(--panel); border-radius: 10px; padding: 11px 12px;
+    box-shadow: 0 1px 2px rgba(16,24,40,.06); cursor: grab;
+    border-left: 3px solid var(--line);
+  }
+  .card:active { cursor: grabbing; }
+  .card.dragging { opacity: .45; }
+  .card .summary { font-size: 13.5px; line-height: 1.5; margin-bottom: 8px; white-space: pre-wrap; word-break: break-word; }
+  .card .meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .tag-src {
+    background: #eef2ff; color: #3b6cff; font-size: 11px;
+    padding: 2px 8px; border-radius: 6px; font-weight: 550;
+  }
+  .tag-pri { font-size: 11px; padding: 2px 8px; border-radius: 6px; font-weight: 600; color: #fff; }
+  .p-高 { background: var(--pri-high); }
+  .p-中 { background: var(--pri-mid); }
+  .p-低 { background: var(--pri-low); }
+  .card .date { margin-left: auto; color: var(--muted); font-size: 10.5px; }
+  .card .del {
+    margin-left: 6px; color: var(--muted); background: transparent;
+    border: none; cursor: pointer; font-size: 13px; padding: 0 4px; border-radius: 6px;
+  }
+  .card .del:hover { color: var(--pri-high); background: #ffecec; }
+  .card .move { display: none; gap: 4px; margin-left: 4px; }
+  .card:hover .move { display: inline-flex; }
+  @media (hover: none) { .card .move { display: inline-flex; } }
+  .card .move button {
+    border: 1px solid var(--line); background: #fff; color: var(--muted);
+    border-radius: 6px; padding: 0 7px; font-size: 12px; line-height: 19px; cursor: pointer;
+  }
+  .card .move button:hover { color: var(--accent); border-color: var(--accent); }
+  .card .move button:disabled { opacity: .3; cursor: default; }
+  .empty { color: var(--muted); font-size: 12px; text-align: center; padding: 14px 0; }
+
+  /* 登录遮罩 */
+  .login-mask { z-index: 100; }
+  .login-card { width: min(380px, 92vw); }
+  .login-sub { color: var(--muted); font-size: 13px; margin: -8px 0 16px; }
+  .btn-ghost { background: transparent; color: var(--muted); padding: 8px 12px; }
+  .btn-ghost:hover { color: var(--ink); }
+
+  /* modal */
+  .modal-mask {
+    position: fixed; inset: 0; background: rgba(16,24,40,.4);
+    display: none; align-items: center; justify-content: center; z-index: 50;
+  }
+  .modal-mask.show { display: flex; }
+  .modal {
+    background: var(--panel); width: min(440px, 92vw); border-radius: 14px;
+    padding: 22px; box-shadow: 0 20px 60px rgba(16,24,40,.25);
+  }
+  .modal h3 { margin: 0 0 16px; font-size: 16px; }
+  .field { margin-bottom: 14px; }
+  .field label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; font-weight: 550; }
+  .field input, .field textarea, .field select {
+    width: 100%; padding: 9px 11px; border: 1px solid var(--line);
+    border-radius: 8px; font-family: inherit; font-size: 13px; color: var(--ink);
+    background: #fbfbfc;
+  }
+  .field textarea { resize: vertical; min-height: 70px; }
+  .field input:focus, .field textarea:focus, .field select:focus { outline: none; border-color: var(--accent); background: #fff; }
+  .modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 6px; }
+  .btn-cancel { background: #eef0f3; color: var(--ink); }
+  .hint { color: var(--muted); font-size: 11px; margin-top: 2px; }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>需求与问题池</h1>
+    <div class="sub">统一归集地 · 收件箱 → 本周待做 → 处理中 → 已完成</div>
+  </div>
+  <div class="spacer"></div>
+  <div class="stats" id="stats"></div>
+  <button class="btn-ghost" id="logoutBtn" style="display:none">退出</button>
+  <button class="btn-primary" id="addBtn">+ 新增条目</button>
+</header>
+
+<div class="toolbar">
+  <span class="tb-label">筛选</span>
+  <select id="f-src"><option value="all">全部来源</option></select>
+  <select id="f-pri">
+    <option value="all">全部优先级</option>
+    <option value="高">高</option>
+    <option value="中">中</option>
+    <option value="低">低</option>
+  </select>
+  <select id="f-sta">
+    <option value="all">全部状态</option>
+    <option value="inbox">收件箱 / 未处理</option>
+    <option value="this_week">本周 / 今日待做</option>
+    <option value="in_progress">处理中 / 观察中</option>
+    <option value="done">已完成</option>
+  </select>
+  <button class="btn-clear" id="clearFilter" style="display:none">清除筛选</button>
+  <span class="tb-info" id="tbInfo"></span>
+</div>
+
+<main class="board" id="board"></main>
+
+<!-- 登录遮罩 -->
+<div class="modal-mask login-mask" id="loginMask">
+  <div class="modal login-card">
+    <h3>需求与问题池 · 登录</h3>
+    <p class="login-sub">请输入访问令牌（API_TOKEN）进入</p>
+    <div class="field">
+      <input id="loginInput" type="password" placeholder="访问令牌" autocomplete="off" />
+      <div class="hint" id="loginMsg" style="color:var(--pri-high)"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-primary" id="loginBtn">进入</button>
+    </div>
+  </div>
+</div>
+
+<!-- 新增/编辑弹窗 -->
+<div class="modal-mask" id="modalMask">
+  <div class="modal">
+    <h3 id="modalTitle">新增条目</h3>
+    <div class="field">
+      <label>来源 / 渠道</label>
+      <input id="f-source" placeholder="如：微信、邮件、会议、自动化抓取…" />
+    </div>
+    <div class="field">
+      <label>内容概述</label>
+      <textarea id="f-summary" placeholder="一句话说清这个需求 / 问题是什么"></textarea>
+      <div class="hint">建议一句话可操作、可验收。</div>
+    </div>
+    <div class="field">
+      <label>优先级</label>
+      <select id="f-priority">
+        <option value="高">高</option>
+        <option value="中" selected>中</option>
+        <option value="低">低</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>当前状态</label>
+      <select id="f-status">
+        <option value="inbox">收件箱 / 未处理</option>
+        <option value="this_week">本周 / 今日待做</option>
+        <option value="in_progress">处理中 / 观察中</option>
+        <option value="done">已完成</option>
+      </select>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-cancel" id="cancelBtn">取消</button>
+      <button class="btn-primary" id="saveBtn">保存</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const COLUMNS = [
+  { key: 'inbox',      title: '收件箱 / 未处理', cls: 'c-inbox' },
+  { key: 'this_week',  title: '本周 / 今日待做', cls: 'c-week' },
+  { key: 'in_progress',title: '处理中 / 观察中', cls: 'c-doing' },
+  { key: 'done',       title: '已完成',          cls: 'c-done' },
+];
+const STATUS_ORDER = ['inbox', 'this_week', 'in_progress', 'done'];
+let items = [];
+let editingId = null;
+const filters = { source: 'all', priority: 'all', status: 'all' };
+
+const $ = (s) => document.querySelector(s);
+
+function fmtDate(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getMonth() + 1}/${d.getDate()} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function getView() {
+  return items.filter((i) =>
+    (filters.source === 'all' || i.source === filters.source) &&
+    (filters.priority === 'all' || i.priority === filters.priority) &&
+    (filters.status === 'all' || i.status === filters.status)
+  );
+}
+
+function populateSources() {
+  const sel = $('#f-src');
+  const cur = sel.value;
+  const srcs = [...new Set(items.map((i) => i.source).filter(Boolean))].sort();
+  sel.innerHTML = '<option value="all">全部来源</option>' +
+    srcs.map((s) => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join('');
+  sel.value = srcs.includes(cur) ? cur : 'all';
+}
+
+let authRequired = false;
+function getToken() { return localStorage.getItem('kanban_token') || ''; }
+function setToken(t) { if (t) localStorage.setItem('kanban_token', t); else localStorage.removeItem('kanban_token'); }
+
+// 统一封装 fetch：自动带令牌，401 退回登录
+async function api(path, opts = {}) {
+  const token = getToken();
+  const headers = Object.assign({}, opts.headers || {}, token ? { Authorization: 'Bearer ' + token } : {});
+  const res = await fetch(path, Object.assign({}, opts, { headers }));
+  if (res.status === 401) {
+    setToken('');
+    showLogin('登录已失效，请重新输入访问令牌');
+    throw new Error('unauthorized');
+  }
+  return res;
+}
+
+function showLogin(msg) {
+  $('#loginMsg').textContent = msg || '';
+  $('#loginInput').value = '';
+  $('#loginMask').classList.add('show');
+  setTimeout(() => $('#loginInput').focus(), 50);
+}
+function hideLogin() { $('#loginMask').classList.remove('show'); }
+
+async function tryLogin(token) {
+  const res = await fetch('/api/items', { headers: { Authorization: 'Bearer ' + token } });
+  if (res.ok) {
+    setToken(token);
+    hideLogin();
+    if (authRequired) $('#logoutBtn').style.display = '';
+    await load();
+    return true;
+  }
+  return false;
+}
+
+async function boot() {
+  try {
+    const r = await fetch('/api/config');
+    const cfg = await r.json();
+    authRequired = !!cfg.authRequired;
+  } catch (e) { authRequired = false; }
+  if (authRequired && !getToken()) { showLogin(); return; }
+  if (authRequired) {
+    try { await load(); $('#logoutBtn').style.display = ''; return; }
+    catch (e) { /* api 已因 401 展示登录 */ return; }
+  }
+  await load();
+}
+
+async function load() {
+  const res = await api('/api/items');
+  items = await res.json();
+  populateSources();
+  render();
+}
+
+function render() {
+  const view = getView();
+  const active = filters.source !== 'all' || filters.priority !== 'all' || filters.status !== 'all';
+  $('#clearFilter').style.display = active ? '' : 'none';
+  $('#tbInfo').innerHTML = active ? `显示 <b>${view.length}</b> / ${items.length} 条` : '';
+
+  const board = $('#board');
+  board.innerHTML = '';
+  const stats = { inbox: 0, this_week: 0, in_progress: 0, done: 0 };
+
+  for (const col of COLUMNS) {
+    const list = view.filter((i) => i.status === col.key);
+    stats[col.key] = list.length;
+    const colEl = document.createElement('div');
+    colEl.className = `column ${col.cls}`;
+    colEl.dataset.status = col.key;
+    colEl.innerHTML = `
+      <div class="col-head">
+        <span class="col-dot"></span>
+        <span class="col-title">${col.title}</span>
+        <span class="col-count">${list.length}</span>
+      </div>
+      <div class="cards"></div>`;
+    const cards = colEl.querySelector('.cards');
+    if (list.length === 0) {
+      const e = document.createElement('div');
+      e.className = 'empty';
+      e.textContent = active ? '无匹配条目' : '拖拽卡片到此处';
+      cards.appendChild(e);
+    } else {
+      for (const it of list) cards.appendChild(cardEl(it));
+    }
+    // 拖放目标
+    colEl.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      colEl.classList.add('drag-over');
+    });
+    colEl.addEventListener('dragleave', () => colEl.classList.remove('drag-over'));
+    colEl.addEventListener('drop', (e) => {
+      e.preventDefault();
+      colEl.classList.remove('drag-over');
+      const id = e.dataTransfer.getData('text/plain');
+      moveItem(id, col.key);
+    });
+    board.appendChild(colEl);
+  }
+
+  // 统计
+  $('#stats').innerHTML = `
+    <div class="stat"><b>${view.length}</b><span>总计</span></div>
+    <div class="stat"><b>${stats.inbox + stats.this_week}</b><span>待处理</span></div>
+    <div class="stat"><b>${stats.done}</b><span>已完成</span></div>`;
+}
+
+function cardEl(it) {
+  const el = document.createElement('div');
+  el.className = 'card';
+  el.draggable = true;
+  el.dataset.id = it.id;
+  const idx = STATUS_ORDER.indexOf(it.status);
+  const prev = idx > 0 ? STATUS_ORDER[idx - 1] : null;
+  const next = idx < STATUS_ORDER.length - 1 ? STATUS_ORDER[idx + 1] : null;
+  el.innerHTML = `
+    <div class="summary">${escapeHtml(it.summary) || '<span style="color:var(--muted)">（无内容概述）</span>'}</div>
+    <div class="meta">
+      ${it.source ? `<span class="tag-src">${escapeHtml(it.source)}</span>` : ''}
+      <span class="tag-pri p-${it.priority}">${it.priority}</span>
+      <span class="date">${fmtDate(it.updatedAt || it.createdAt)}</span>
+      <span class="move">
+        <button data-move="${prev || ''}" ${prev ? '' : 'disabled'} title="上一状态">◀</button>
+        <button data-move="${next || ''}" ${next ? '' : 'disabled'} title="下一状态">▶</button>
+      </span>
+      <button class="del" title="删除">✕</button>
+    </div>`;
+  el.addEventListener('dragstart', (e) => {
+    e.dataTransfer.setData('text/plain', it.id);
+    el.classList.add('dragging');
+  });
+  el.addEventListener('dragend', () => el.classList.remove('dragging'));
+  el.addEventListener('click', (e) => {
+    if (e.target.classList.contains('del')) { deleteItem(it.id); return; }
+    const mv = e.target.dataset && e.target.dataset.move;
+    if (mv) { moveItem(it.id, mv); return; }
+    openModal(it);
+  });
+  return el;
+}
+
+async function moveItem(id, status) {
+  const it = items.find((i) => i.id === id);
+  if (!it || it.status === status) return;
+  await api(`/api/items/${encodeURIComponent(id)}`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status }),
+  });
+  it.status = status;
+  it.updatedAt = new Date().toISOString();
+  render();
+}
+
+async function deleteItem(id) {
+  if (!confirm('确定删除这条条目？')) return;
+  await api(`/api/items/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  items = items.filter((i) => i.id !== id);
+  render();
+}
+
+// ---- modal ----
+function openModal(it) {
+  editingId = it ? it.id : null;
+  $('#modalTitle').textContent = it ? '编辑条目' : '新增条目';
+  $('#f-source').value = it ? it.source : '';
+  $('#f-summary').value = it ? it.summary : '';
+  $('#f-priority').value = it ? it.priority : '中';
+  $('#f-status').value = it ? it.status : 'inbox';
+  $('#modalMask').classList.add('show');
+  setTimeout(() => $('#f-summary').focus(), 50);
+}
+function closeModal() { $('#modalMask').classList.remove('show'); editingId = null; }
+
+$('#addBtn').addEventListener('click', () => openModal(null));
+
+// 登录 / 退出
+$('#loginBtn').addEventListener('click', async () => {
+  const t = $('#loginInput').value.trim();
+  if (!t) { $('#loginMsg').textContent = '请输入访问令牌'; return; }
+  $('#loginBtn').disabled = true;
+  const ok = await tryLogin(t);
+  $('#loginBtn').disabled = false;
+  if (!ok) $('#loginMsg').textContent = '令牌不正确';
+});
+$('#loginInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#loginBtn').click(); });
+$('#logoutBtn').addEventListener('click', () => {
+  setToken('');
+  $('#logoutBtn').style.display = 'none';
+  showLogin('已退出，请重新输入访问令牌');
+});
+$('#cancelBtn').addEventListener('click', closeModal);
+$('#modalMask').addEventListener('click', (e) => { if (e.target === $('#modalMask')) closeModal(); });
+
+$('#saveBtn').addEventListener('click', async () => {
+  const payload = {
+    source: $('#f-source').value.trim(),
+    summary: $('#f-summary').value.trim(),
+    priority: $('#f-priority').value,
+    status: $('#f-status').value,
+  };
+  if (!payload.summary) { alert('请填写内容概述'); return; }
+  if (editingId) {
+    await api(`/api/items/${encodeURIComponent(editingId)}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+    });
+  } else {
+    await api('/api/items', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+    });
+  }
+  closeModal();
+  await load();
+});
+
+// 筛选
+$('#f-src').addEventListener('change', (e) => { filters.source = e.target.value; render(); });
+$('#f-pri').addEventListener('change', (e) => { filters.priority = e.target.value; render(); });
+$('#f-sta').addEventListener('change', (e) => { filters.status = e.target.value; render(); });
+$('#clearFilter').addEventListener('click', () => {
+  filters = { source: 'all', priority: 'all', status: 'all' };
+  $('#f-src').value = 'all'; $('#f-pri').value = 'all'; $('#f-sta').value = 'all';
+  render();
+});
+
+// 快捷键：Esc 关闭，Enter(在文本域外) 保存
+document.addEventListener('keydown', (e) => {
+  if (! $('#modalMask').classList.contains('show')) return;
+  if (e.key === 'Escape') closeModal();
+  if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA') $('#saveBtn').click();
+});
+
+boot();
+</script>
+</body>
+</html>
