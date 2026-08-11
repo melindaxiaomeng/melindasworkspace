@@ -16,6 +16,14 @@ services:
       - HOST=0.0.0.0
       - PORT=3000
       - API_TOKEN=${API_TOKEN}
+      # —— AI 模块：把 .env 里的 AI_* 注入容器（否则 server.js 读不到 key）——
+      - AI_API_KEY=${AI_API_KEY}
+      - AI_BASE_URL=${AI_BASE_URL}
+      - AI_MODEL=${AI_MODEL}
+      - AI_EMBED_BASE_URL=${AI_EMBED_BASE_URL}
+      - AI_EMBED_MODEL=${AI_EMBED_MODEL}
+      - AI_EMBED_API_KEY=${AI_EMBED_API_KEY}
+      - AI_MOCK=${AI_MOCK}
 
     # —— 隔离：资源上限，避免抢占同服务器其他项目 ——
     deploy:

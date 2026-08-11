@@ -22,6 +22,7 @@ const DATA_DIR = path.join(ROOT, 'data');
 const DATA_FILE_EMBED = path.join(DATA_DIR, 'embeddings.json');
 const DATA_FILE = path.join(DATA_DIR, 'items.json');
 const DATA_FILE_NOTES = path.join(DATA_DIR, 'notes.json');
+const DATA_FILE_REPORTS = path.join(DATA_DIR, 'reports.json');
 const UPLOAD_DIR = path.join(DATA_DIR, 'uploads');
 
 const STATUSES = ['inbox', 'this_week', 'in_progress', 'done'];
@@ -33,6 +34,7 @@ if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 if (!fs.existsSync(DATA_FILE)) fs.writeFileSync(DATA_FILE, JSON.stringify([], null, 2));
 if (!fs.existsSync(DATA_FILE_NOTES)) fs.writeFileSync(DATA_FILE_NOTES, JSON.stringify([], null, 2));
+if (!fs.existsSync(DATA_FILE_REPORTS)) fs.writeFileSync(DATA_FILE_REPORTS, JSON.stringify([], null, 2));
 
 // 兼容旧字段：把单字段 date 迁移为 dateStart（日期范围）
 function normalizeItem(it) {
@@ -75,6 +77,9 @@ function readNotes() {
 function writeNotes(notes) {
   fs.writeFileSync(DATA_FILE_NOTES, JSON.stringify(notes, null, 2));
 }
+
+function readReports() { try { return JSON.parse(fs.readFileSync(DATA_FILE_REPORTS, 'utf8')); } catch (e) { return []; } }
+function writeReports(reports) { fs.writeFileSync(DATA_FILE_REPORTS, JSON.stringify(reports, null, 2)); }
 
 // 判断 maybeDescId 是否为 ancestorId 的后代（用于防止父子关系成环）
 function isDescendant(notes, maybeDescId, ancestorId) {
@@ -360,6 +365,147 @@ async function summarize(item) {
   return { summary: String(raw || '').trim().replace(/^["'】]+|["'】]+$/g, '') };
 }
 
+/* —— AI 生成日报 / 周报 —— */
+async function generateReport(opts) {
+  const type = String(opts.type || 'daily'); // 'daily' | 'weekly'
+  const dateStr = String(opts.date || '');   // 'YYYY-MM-DD'
+  if (!dateStr) return { error: '缺少 date 参数' };
+
+  const d = new Date(dateStr + 'T00:00:00');
+  if (isNaN(d.getTime())) return { error: '日期格式无效，需 YYYY-MM-DD' };
+
+  // 确定时间范围
+  let rangeStart, rangeEnd, title;
+  if (type === 'weekly') {
+    // 周报：取该日期所在周的周一 ~ 周日
+    const day = d.getDay() || 7; // 周日=7
+    rangeStart = new Date(d); rangeStart.setDate(d.getDate() - day + 1);
+    rangeStart.setHours(0,0,0,0);
+    rangeEnd = new Date(rangeStart); rangeEnd.setDate(rangeStart.getDate() + 6);
+    rangeEnd.setHours(23,59,59,999);
+    const wn = getWeekNum(d);
+    title = `第${wn}周需求与问题解决周报（${fmtDateShort(rangeStart)} ~ ${fmtDateShort(rangeEnd)}）`;
+  } else {
+    // 日报：当天
+    rangeStart = new Date(d); rangeStart.setHours(0,0,0,0);
+    rangeEnd = new Date(d); rangeEnd.setHours(23,59,59,999);
+    title = `${fmtDateShort(d)} 日报`;
+  }
+
+  // 筛选该时间段内 status=done 的卡片
+  const allItems = readItems();
+  const doneItems = allItems.filter((it) => {
+    if (it.status !== 'done') return false;
+    const updated = new Date(it.updatedAt || it.createdAt || '');
+    return updated >= rangeStart && updated <= rangeEnd;
+  });
+
+  // 按来源分组
+  const bySource = {};
+  for (const it of doneItems) {
+    const src = it.source || '未分类';
+    if (!bySource[src]) bySource[src] = [];
+    bySource[src].push(it);
+  }
+
+  // Mock 模式
+  if (AI_MOCK) {
+    const content = buildMockReportContent(type, dateStr, title, doneItems, bySource);
+    const report = saveReport({ type, date: dateStr, title, content, summary: `共 ${doneItems.length} 条已完成`, mock: true });
+    return report;
+  }
+
+  if (!AI_API_KEY) return { error: 'AI_API_KEY 未配置' };
+
+  // 构建给 LLM 的上下文
+  const itemsText = Object.entries(bySource).map(([src, items]) =>
+    `## ${src}（${items.length} 条）\n` +
+    items.map((it, i) =>
+      `${i+1}. **${it.summary || '（无标题）'}**\n` +
+      `   - 优先级：${it.priority || '-'} | 负责人：${it.person || '-'}\n` +
+      (it.result ? `   - 处理结果：${it.result}` : '') +
+      (it.dateStart ? `   - 时间：${it.dateStart}${it.dateEnd ? ' ~ ' + it.dateEnd : ''}` : '')
+    ).join('\n')
+  ).join('\n\n');
+
+  const sysPrompt = `你是一位资深技术项目经理。根据以下「已完成事项」数据，生成一份结构化的${type === 'weekly' ? '周' : '日'}报告。
+
+要求：
+1. 用 Markdown 格式输出
+2. 包含以下章节：
+   - 📊 概览（完成数量、主要领域分布）
+   - ✅ 已完成事项汇总（按来源分组列出）
+   - 🔍 技术亮点 / 关键进展
+   - ⚠️ 遗留问题 / 待跟进项
+   - 📈 下一步计划建议
+3. 数据驱动，不要编造信息；如果某类数据为空就写"本周无"
+4. 语言简洁专业，适合向管理层汇报
+5. 总字数控制在 500~1200 字`;
+
+  const userPrompt = `报告标题：${title}\n\n已完成事项数据：\n${itemsText}\n\n请生成${type === 'weekly' ? '周' : '日'}报告：`;
+
+  let raw;
+  try { raw = await aiChat(sysPrompt, userPrompt, { temperature: 0.3 }); } catch (e) { return { error: e.message }; }
+  const content = String(raw || '').trim();
+
+  const report = saveReport({
+    type, date: dateStr, title,
+    content,
+    summary: `共 ${doneItems.length} 条已完成，涉及 ${Object.keys(bySource).length} 个来源`,
+    mock: false,
+  });
+  return report;
+}
+
+function saveReport(data) {
+  const reports = readReports();
+  const now = new Date().toISOString();
+  const report = {
+    id: 'rp_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+    type: data.type || 'daily',
+    date: data.date || '',
+    title: data.title || '',
+    content: data.content || '',
+    summary: data.summary || '',
+    mock: !!data.mock,
+    createdAt: now,
+    updatedAt: now,
+  };
+  reports.push(report);
+  writeReports(reports);
+  return report;
+}
+
+function buildMockReportContent(type, dateStr, title, items, bySource) {
+  const lines = [`# ${title}`, '', `> Mock 模式生成的示例报告（未连接真实 LLM）`, '', '---', '', '## 📊 概览'];
+  lines.push(`- 报告周期：${type === 'weekly' ? '本周' : '今天'}`);
+  lines.push(`- 已完成事项：**${items.length} 条**`);
+  lines.push(`- 涉及来源：${Object.keys(bySource).join('、') || '无'}`);
+  lines.push('', '## ✅ 已完成事项汇总');
+  if (!Object.keys(bySource).length) {
+    lines.push('本周期暂无已完成的条目。');
+  } else {
+    for (const [src, list] of Object.entries(bySource)) {
+      lines.push(`\n### ${src}（${list.length} 条）`);
+      for (const it of list) {
+        lines.push(`- **${escapeHtml(it.summary)}** ${it.result ? `— ${escapeHtml(it.result.slice(0, 80))}` : ''}`);
+      }
+    }
+  }
+  lines.push('', '## 🔍 关键进展', '- （Mock 模式下无真实分析）', '', '## ⚠️ 遗留问题', '- （Mock 模式下无真实分析）', '', '## 📈 下一步计划', '- （Mock 模式下无真实建议）');
+  return lines.join('\n');
+}
+
+function getWeekNum(d) {
+  const firstDay = new Date(d.getFullYear(), 0, 1);
+  const pastDays = Math.floor((d - firstDay) / 86400000);
+  return Math.ceil((pastDays + firstDay.getDay() + 1) / 7);
+}
+function fmtDateShort(d) {
+  if (!(d instanceof Date)) d = new Date(d);
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+
 // 应用层令牌鉴权：未配置 API_TOKEN 时关闭（开发模式）
 function authOk(req) {
   if (!API_TOKEN) return true;
@@ -408,6 +554,25 @@ const server = http.createServer((req, res) => {
               sendJSON(res, 200, r);
             } catch (e) { sendJSON(res, 502, { error: e.message }); }
           })();
+          return;
+        }
+
+        // —— AI 生成报告（日报 / 周报）——
+        if (req.method === 'POST' && pathname === '/api/ai/report') {
+          (async () => {
+            try {
+              const opts = JSON.parse(body || '{}');
+              const r = await generateReport(opts);
+              sendJSON(res, 200, r);
+            } catch (e) { sendJSON(res, 502, { error: e.message }); }
+          })();
+          return;
+        }
+
+        // —— 报告列表 CRUD ——
+        if (pathname === '/api/reports') {
+          if (req.method === 'GET') return sendJSON(res, 200, readReports());
+          // POST 由 AI 报告接口内部调用，不单独暴露
           return;
         }
 

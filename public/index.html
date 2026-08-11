@@ -179,28 +179,191 @@
   /* AI 诊断区块 */
   .card .card-ai { margin: 2px 0 4px; }
   .card .ai-btn {
-    font-size: 11.5px; padding: 3px 9px; border-radius: 7px;
-    border: 1px solid #c9d8ff; background: #eef3ff; color: #2b56c9; cursor: pointer;
-    transition: background .15s;
+    font-size: 11.5px; padding: 3px 10px; border-radius: 7px;
+    border: 1px solid #c9d8ff; background: linear-gradient(135deg, #eef3ff, #f0f4ff); color: #2b56c9; cursor: pointer;
+    transition: all .18s; font-weight: 500; letter-spacing: .2px;
   }
-  .card .ai-btn:hover { background: #e2ebff; }
-  .card .ai-btn:disabled { opacity: .6; cursor: default; }
+  .card .ai-btn:hover { background: linear-gradient(135deg, #dbe6ff, #e2ebff); box-shadow: 0 1px 4px rgba(59,108,255,.15); transform: translateY(-.5px); }
+  .card .ai-btn:active { transform: translateY(0); }
+  .card .ai-btn:disabled { opacity: .5; cursor: default; transform: none; box-shadow: none; }
+
+  /* —— AI 结果面板（卡片化）—— */
   .card .ai-box {
-    margin-top: 8px; padding: 10px 12px; background: #f4f8ff;
-    border: 1px solid #dbe6ff; border-left: 3px solid var(--accent);
-    border-radius: 8px; font-size: 12.5px; line-height: 1.55;
+    margin-top: 8px; padding: 0; overflow: hidden;
+    background: #fff; border: 1px solid #dde5f0; border-radius: 10px;
+    box-shadow: 0 2px 8px rgba(59,108,255,.07), 0 1px 3px rgba(0,0,0,.04);
+    font-size: 12.5px; line-height: 1.6; color: #33415c;
   }
-  .card .ai-box h5 { margin: 0 0 6px; font-size: 12.5px; color: #2b56c9; }
-  .card .ai-box .ai-sub { font-weight: 600; color: #44506b; margin: 8px 0 3px; }
-  .card .ai-box .ai-analysis { color: #33415c; white-space: pre-wrap; margin: 2px 0; }
-  .card .ai-box ul { margin: 4px 0; padding-left: 18px; }
-  .card .ai-box li { margin: 2px 0; }
-  .card .ai-box .ai-refs { margin-top: 8px; border-top: 1px dashed #c9d8ff; padding-top: 6px; }
-  .card .ai-box .ai-ref { font-size: 12px; color: #44506b; margin: 4px 0; }
-  .card .ai-box .ai-ref b { color: #2b56c9; }
-  .card .ai-box .ai-ref-result { color: #66708a; }
-  .card .ai-box .ai-badge { display: inline-block; font-size: 11px; color: #b06a00; background: #fff4e0; border: 1px solid #ffe0a8; padding: 1px 7px; border-radius: 6px; margin-bottom: 6px; }
-  .card .ai-box .ai-loading { color: #66708a; }
+  /* 面板头部 */
+  .card .ai-box .ai-header {
+    display: flex; align-items: center; gap: 6px;
+    padding: 9px 13px; background: linear-gradient(135deg, #eef3ff, #f5f8ff);
+    border-bottom: 1px solid #e8effa;
+  }
+  .card .ai-box .ai-header-icon {
+    width: 20px; height: 20px; border-radius: 50%;
+    background: linear-gradient(135deg, var(--accent), #6b8cff); display: flex;
+    align-items: center; justify-content: center; flex-shrink: 0;
+  }
+  .card .ai-box .ai-header-icon svg { width: 12px; height: 12px; fill: #fff; }
+  .card .ai-box .ai-header h5 {
+    margin: 0; font-size: 12.5px; font-weight: 600; color: #2b56c9; flex: 1;
+  }
+  /* 面板内容区 */
+  .card .ai-box .ai-body { padding: 10px 13px 12px; }
+
+  /* 各分区标题 */
+  .card .ai-box .ai-section-title {
+    display: flex; align-items: center; gap: 5px;
+    font-weight: 600; font-size: 11.8px; color: #44506b;
+    margin: 10px 0 5px; padding-bottom: 3px;
+    border-bottom: 1px solid #f0f3f9;
+  }
+  .card .ai-box .ai-section-title:first-child { margin-top: 2px; }
+  .card .ai-box .ai-section-title::before {
+    content: ''; width: 3px; height: 12px; border-radius: 2px;
+    background: var(--accent); flex-shrink: 0;
+  }
+
+  /* 分析文本 */
+  .card .ai-box .ai-analysis {
+    color: #33415c; white-space: pre-wrap; margin: 3px 0 6px;
+    padding: 7px 10px; background: #fafbff; border-radius: 7px;
+    border: 1px solid #f0f3f9; font-size: 12.3px; line-height: 1.65;
+  }
+
+  /* Checklist（自定义勾选样式） */
+  .card .ai-box ul {
+    list-style: none; margin: 4px 0; padding: 0;
+  }
+  .card .ai-box li {
+    position: relative; padding: 5px 0 5px 26px; margin: 1px 0;
+    transition: background .12s; border-radius: 5px;
+  }
+  .card .ai-box li:hover { background: #f7f9fc; }
+  .card .ai-box li::before {
+    content: '☐'; position: absolute; left: 4px; top: 5px;
+    font-size: 14px; color: #b0bccf; line-height: 1;
+  }
+
+  /* 参考条目（迷你卡片） */
+  .card .ai-box .ai-refs { margin-top: 6px; }
+  .card .ai-box .ai-ref {
+    display: block; padding: 8px 10px; margin: 5px 0;
+    background: linear-gradient(135deg, #fafbff, #f8faff);
+    border: 1px solid #eef1f8; border-radius: 8px;
+    font-size: 12px; transition: all .15s; cursor: default;
+  }
+  .card .ai-box .ai-ref:hover {
+    border-color: #c9d8ff; box-shadow: 0 1px 4px rgba(59,108,255,.08);
+    transform: translateY(-1px);
+  }
+  .card .ai-box .ai-ref b {
+    display: inline-block; color: #2b56c9; font-weight: 600;
+    background: #eef3ff; padding: 1px 7px; border-radius: 4px; font-size: 11.3px;
+    margin-right: 4px;
+  }
+  .card .ai-box .ai-ref-result {
+    display: block; margin-top: 4px; color: #6b7a94; font-size: 11.5px;
+    padding-left: 12px; border-left: 2px solid #e8ecf4;
+  }
+
+  /* Mock 标签 */
+  .card .ai-box .ai-badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 11px; color: #a16207; background: #fefce8;
+    border: 1px solid #fde68a; padding: 2px 9px; border-radius: 6px;
+    margin: 0; font-weight: 500;
+  }
+  .card .ai-box .ai-badge::before { content: '⚡'; font-size: 10px; }
+
+  /* 加载态 */
+  .card .ai-box .ai-loading {
+    text-align: center; padding: 20px 16px; color: #8896ab;
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+  }
+  .card .ai-box .ai-loading::before {
+    content: ''; width: 16px; height: 16px;
+    border: 2px solid #dde5f0; border-top-color: var(--accent);
+    border-radius: 50%; animation: ai-spin .65s linear infinite; flex-shrink: 0;
+  }
+  @keyframes ai-spin { to { transform: rotate(360deg); } }
+
+  /* 移动端适配 */
+  @media (max-width: 600px) {
+    .card .ai-box .ai-body { padding: 8px 10px 10px; }
+    .card .ai-box .ai-analysis { padding: 6px 8px; font-size: 12px; }
+    .card .ai-box .ai-ref { padding: 7px 8px; }
+    .card .ai-box li { padding-left: 22px; }
+  }
+
+  /* —— 周报·日报视图 —— */
+  .reports-wrap { max-width: 960px; margin: 0 auto; padding: 0 12px 30px; }
+  .reports-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    padding: 10px 0 14px; border-bottom: 1px solid var(--line); margin-bottom: 16px; }
+  .reports-bar-left { display: flex; align-items: center; gap: 8px; }
+  .reports-bar select, .reports-bar input[type="date"] {
+    padding: 6px 10px; border: 1px solid var(--line); border-radius: 7px;
+    font-size: 12.5px; font-family: inherit; color: var(--ink); background: #fff;
+  }
+  .reports-bar input[type="date"] { width: 150px; }
+  /* 报告详情 */
+  .report-detail { display: none; margin-bottom: 20px; }
+  .report-detail.show { display: block; }
+  .report-card {
+    background: #fff; border: 1px solid #e2e8f0; border-radius: 12px;
+    box-shadow: 0 2px 10px rgba(0,0,0,.04); overflow: hidden;
+  }
+  .report-card-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 18px; background: linear-gradient(135deg, #f8faff, #f0f4ff);
+    border-bottom: 1px solid #e8effa;
+  }
+  .report-card-head h3 { margin: 0; font-size: 15px; color: #1e293b; }
+  .report-card-head .report-meta { font-size: 11.5px; color: #64748b; }
+  .report-card-body { padding: 18px; font-size: 13px; line-height: 1.7; color: #334155; }
+  .report-card-body .md h4 { font-size: 14px; color: #1e293b; margin: 16px 0 8px;
+    padding-bottom: 5px; border-bottom: 2px solid #eef2ff; }
+  .report-card-body .md h4:first-child { margin-top: 4px; }
+  .report-card-body .md ul, .report-card-body .md ol { padding-left: 20px; margin: 6px 0; }
+  .report-card-body .md li { margin: 3px 0; }
+  .report-card-body .md table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 12.3px; }
+  .report-card-body .md th, .report-card-body .md td {
+    border: 1px solid #e2e8f0; padding: 7px 10px; text-align: left;
+  }
+  .report-card-body .md th { background: #f8fafc; font-weight: 600; color: #334155; }
+  .report-card-body .md strong { color: #1e293b; }
+  /* 报告列表（历史） */
+  .reports-list { display: flex; flex-direction: column; gap: 10px; }
+  .report-item {
+    display: flex; align-items: center; gap: 12px; padding: 12px 16px;
+    background: #fff; border: 1px solid #e8ecf4; border-radius: 10px;
+    cursor: pointer; transition: all .15s;
+  }
+  .report-item:hover { border-color: #c9d8ff; box-shadow: 0 2px 8px rgba(59,108,255,.08);
+    transform: translateY(-1px); }
+  .report-item-icon {
+    width: 38px; height: 38px; border-radius: 10px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center; font-size: 17px;
+  }
+  .report-item-icon.daily { background: linear-gradient(135deg, #fef3c7, #fde68a); }
+  .report-item-icon.weekly { background: linear-gradient(135deg, #dbeafe, #bfdbfe); }
+  .report-item-info { flex: 1; min-width: 0; }
+  .report-item-info .ri-title { font-size: 13px; font-weight: 600; color: #1e293b; }
+  .report-item-info .ri-desc { font-size: 11.5px; color: #64748b; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .report-item-date { font-size: 11.5px; color: #94a3b8; flex-shrink: 0; }
+  /* 报告空态 */
+  .report-empty { text-align: center; padding: 50px 20px; color: #94a3b8; }
+  .report-empty .report-empty-icon { font-size: 40px; margin-bottom: 10px; }
+  .report-empty p { font-size: 13.5px; margin: 6px 0 0; }
+
+  @media (max-width: 600px) {
+    .reports-bar { flex-direction: column; align-items: stretch; }
+    .reports-bar-left { flex-wrap: wrap; }
+    .reports-bar input[type="date"] { width: 100%; box-sizing: border-box; }
+    .report-card-body { padding: 14px; font-size: 12.3px; }
+    .report-item { padding: 10px 12px; }
+  }
 
   /* 卡片图片缩略图 */
   .card-images { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 0 8px; }
@@ -403,6 +566,7 @@
 <nav class="tabs" id="tabs">
   <button class="tab active" data-view="kanban">需求池</button>
   <button class="tab" data-view="notes">笔记</button>
+  <button class="tab" data-view="reports">周报·日报</button>
 </nav>
 
 <div id="kanbanView">
@@ -441,6 +605,26 @@
       <span class="notes-stat" id="notesStat"></span>
     </div>
     <div id="notesList"></div>
+  </div>
+</section>
+
+<!-- 周报·日报 -->
+<section id="reportsView" style="display:none">
+  <div class="reports-wrap">
+    <div class="reports-bar">
+      <div class="reports-bar-left">
+        <select id="r-type">
+          <option value="daily">日报</option>
+          <option value="weekly">周报</option>
+        </select>
+        <input type="date" id="r-date" />
+        <button class="btn-primary" id="genReportBtn" style="font-size:12px;padding:5px 14px">🤖 AI 生成报告</button>
+      </div>
+      <div class="spacer"></div>
+      <span class="notes-stat" id="reportsStat"></span>
+    </div>
+    <div id="reportDetail" class="report-detail"></div>
+    <div id="reportsList" class="reports-list"></div>
   </div>
 </section>
 
@@ -963,12 +1147,14 @@ async function aiDiagnose(it, box) {
     ).join('');
     const checklist = (r.checklist || []).map((c) => '<li>' + escapeHtml(c) + '</li>').join('');
     box.innerHTML =
-      (r.mock ? '<div class="ai-badge">Mock 模式（未连真实模型）</div>' : '') +
-      '<h5>AI 诊断与排查建议</h5>' +
-      (r.analysis ? '<div class="ai-analysis">' + escapeHtml(r.analysis) + '</div>' : '') +
-      (checklist ? '<div class="ai-sub">排查 Checklist</div><ul>' + checklist + '</ul>' : '') +
-      (r.suggestion ? '<div class="ai-analysis">' + escapeHtml(r.suggestion) + '</div>' : '') +
-      (refs ? '<div class="ai-refs"><div class="ai-sub">类似问题处理参考</div>' + refs + '</div>' : '');
+      '<div class="ai-header"><div class="ai-header-icon"><svg viewBox="0 0 24 24"><path d="M12 2a2 2 0 012 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 017 7h1a1 1 0 011 1v3a1 1 0 01-1 1h-1v1a2 2 0 01-2 2H5a2 2 0 01-2-2v-1H2a1 1 0 01-1-1v-3a1 1 0 011-1h1a7 7 0 017-7h1V5.73c-.6-.34-1-.99-1-1.73a2 2 0 012-2zM7.5 13A1.5 1.5 0 006 14.5 1.5 1.5 0 007.5 16a1.5 1.5 0 000-3zm9 0a1.5 1.5 0 00-1.5 1.5 1.5 1.5 0 001.5 1.5 1.5 1.5 0 001.5-1.5A1.5 1.5 0 0016.5 13z"/></svg></div><h5>AI 诊断与排查建议</h5>' +
+      (r.mock ? '<span class="ai-badge">Mock 模式</span>' : '') + '</div>' +
+      '<div class="ai-body">' +
+      (r.analysis ? '<div class="ai-section-title">分析</div><div class="ai-analysis">' + escapeHtml(r.analysis) + '</div>' : '') +
+      (checklist ? '<div class="ai-section-title">排查 Checklist</div><ul>' + checklist + '</ul>' : '') +
+      (r.suggestion ? '<div class="ai-section-title">处理建议</div><div class="ai-analysis">' + escapeHtml(r.suggestion) + '</div>' : '') +
+      (refs ? '<div class="ai-section-title">类似问题处理参考</div><div class="ai-refs">' + refs + '</div>' : '') +
+      '</div>';
   } catch (e) {
     box.innerHTML = '<div class="ai-loading">诊断失败：' + escapeHtml(e.message || String(e)) + '</div>';
   } finally {
@@ -1104,11 +1290,15 @@ let editingNoteId = null;
 
 function switchView(v) {
   const kanban = v === 'kanban';
+  const notes = v === 'notes';
+  const reports = v === 'reports';
   document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.view === v));
   $('#kanbanView').style.display = kanban ? '' : 'none';
-  $('#notesView').style.display = kanban ? 'none' : '';
+  $('#notesView').style.display = notes ? '' : 'none';
+  $('#reportsView').style.display = reports ? '' : 'none';
   $('#addBtn').style.display = kanban ? '' : 'none';
-  if (!kanban) loadNotes();
+  if (notes) loadNotes();
+  if (reports) loadReports();
 }
 
 async function loadNotes() {
@@ -1416,6 +1606,107 @@ function closeAllCdd() {
   cddPopups.forEach((p) => { p.popup.style.display = 'none'; p.btn.classList.remove('open'); });
 }
 function refreshCdd(select) { const rec = cddMap.get(select); if (rec) rec.build(); }
+
+// ===== 周报·日报 =====
+let reports = [];
+const REPORTS_FILE = 'data/reports.json';
+
+async function loadReports() {
+  try {
+    const res = await api('/api/reports');
+    if (!res.ok) { reports = []; renderReports(); return; }
+    reports = await res.json();
+  } catch (e) { reports = []; }
+  renderReports();
+  // 默认日期=今天
+  const d = $('#r-date');
+  if (!d.value) d.value = new Date().toISOString().slice(0, 10);
+}
+
+function renderReports() {
+  const list = $('#reportsList');
+  const detail = $('#reportDetail');
+  const stat = $('#reportsStat');
+  stat.textContent = reports.length ? `共 ${reports.length} 份报告` : '';
+  detail.classList.remove('show'); detail.innerHTML = '';
+  if (!reports.length) {
+    list.innerHTML = '<div class="report-empty"><div class="report-empty-icon">📊</div><p>还没有报告，选择日期后点击「AI 生成报告」</p></div>';
+    return;
+  }
+  const sorted = [...reports].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  list.innerHTML = sorted.map((r) => {
+    const isWeekly = r.type === 'weekly';
+    const d = new Date(r.date || r.createdAt);
+    const label = isWeekly
+      ? `第${getWeekNumber(d)}周 (${fmtDateShort(d)})`
+      : fmtDateShort(d);
+    return '<div class="report-item" data-id="' + r.id + '">' +
+      '<div class="report-item-icon ' + (isWeekly ? 'weekly' : 'daily') + '">' +
+        (isWeekly ? '📋' : '📝') + '</div>' +
+      '<div class="report-item-info">' +
+        '<div class="ri-title">' + (isWeekly ? '周报' : '日报') + ' · ' + escapeHtml(label) + '</div>' +
+        '<div class="ri-desc">' + (r.summary || '—') + '</div>' +
+      '</div>' +
+      '<span class="report-item-date">' + fmtDate(r.createdAt) + '</span>' +
+      '</div>';
+  }).join('');
+  list.querySelectorAll('.report-item').forEach((el) => {
+    el.addEventListener('click', () => showReport(el.dataset.id));
+  });
+}
+
+function showReport(id) {
+  const r = reports.find((x) => x.id === id); if (!r) return;
+  const detail = $('#reportDetail');
+  detail.innerHTML =
+    '<div class="report-card">' +
+      '<div class="report-card-head">' +
+        '<h3>' + (r.type === 'weekly' ? '📋 周报' : '📝 日报') + ' · ' + escapeHtml(r.title || '') + '</h3>' +
+        '<span class="report-meta">生成于 ' + fmtDate(r.createdAt) + (r.mock ? ' · Mock模式' : '') + '</span>' +
+      '</div>' +
+      '<div class="report-card-body"><div class="md">' + renderMarkdown(r.content || '*暂无内容*') + '</div></div>' +
+    '</div>';
+  detail.classList.add('show');
+  detail.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+$('#genReportBtn').addEventListener('click', async () => {
+  if (!aiEnabled) { alert('AI 未启用：服务端需配置 AI_API_KEY（本地可设 AI_MOCK=1）。'); return; }
+  const type = $('#r-type').value;
+  const dateStr = $('#r-date').value;
+  if (!dateStr) { alert('请选择日期'); return; }
+  const btn = $('#genReportBtn'); const old = btn.textContent;
+  btn.disabled = true; btn.textContent = '生成中…';
+  try {
+    const res = await api('/api/ai/report', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type, date: dateStr }),
+    });
+    if (!res.ok) { alert('报告生成失败：HTTP ' + res.status); return; }
+    const r = await res.json();
+    if (r.error) { alert('AI 未配置：' + r.error); return; }
+    // 插入到列表头部
+    reports.unshift(r);
+    renderReports();
+    showReport(r.id);
+  } catch (e) { alert('生成失败：' + (e.message || e)); }
+  finally { btn.disabled = false; btn.textContent = old; }
+});
+
+/* 工具：获取一年中第几周 */
+function getWeekNumber(d) {
+  const firstDay = new Date(d.getFullYear(), 0, 1);
+  const pastDays = (d - firstDay) / 86400000;
+  return Math.ceil((pastDays + firstDay.getDay() + 1) / 7);
+}
+/* 工具：短日期格式 YYYY-MM-DD */
+function fmtDateShort(d) {
+  if (!(d instanceof Date)) d = new Date(d);
+  const y = d.getFullYear(); const m = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return y + '-' + m + '-' + dd;
+}
+
 function initCustomDropdowns() { document.querySelectorAll('select').forEach(customSelect); }
 document.addEventListener('click', closeAllCdd);
 
