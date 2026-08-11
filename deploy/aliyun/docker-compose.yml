@@ -15,6 +15,7 @@ services:
     environment:
       - HOST=0.0.0.0
       - PORT=3000
+      - TZ=Asia/Shanghai
       - API_TOKEN=${API_TOKEN}
       # —— AI 模块：把 .env 里的 AI_* 注入容器（否则 server.js 读不到 key）——
       - AI_API_KEY=${AI_API_KEY}

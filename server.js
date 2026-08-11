@@ -476,6 +476,35 @@ function saveReport(data) {
   return report;
 }
 
+// —— 定时报告：每天 18:00 生成日报，周五 18:00 生成周报 ——
+// 依赖容器时区 TZ=Asia/Shanghai（见 docker-compose.yml）；否则按 UTC 计时会偏 8 小时
+function startReportScheduler() {
+  const localDateStr = (dt) => {
+    const y = dt.getFullYear();
+    const m = String(dt.getMonth() + 1).padStart(2, '0');
+    const d = String(dt.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  };
+  setInterval(() => {
+    const now = new Date();
+    if (now.getHours() === 18 && now.getMinutes() === 0) {
+      const ds = localDateStr(now);
+      const reports = readReports();
+      if (!reports.some((r) => r.type === 'daily' && r.date === ds)) {
+        generateReport({ type: 'daily', date: ds })
+          .then(() => console.log(`[report] 日报已生成 ${ds}`))
+          .catch((e) => console.error('[report] 日报生成失败:', e.message));
+      }
+      if (now.getDay() === 5 && !reports.some((r) => r.type === 'weekly' && r.date === ds)) {
+        generateReport({ type: 'weekly', date: ds })
+          .then(() => console.log(`[report] 周报已生成 ${ds}`))
+          .catch((e) => console.error('[report] 周报生成失败:', e.message));
+      }
+    }
+  }, 60 * 1000);
+  console.log('[report] 定时调度已启动：每日 18:00 日报 / 每周五 18:00 周报');
+}
+
 function buildMockReportContent(type, dateStr, title, items, bySource) {
   const lines = [`# ${title}`, '', `> Mock 模式生成的示例报告（未连接真实 LLM）`, '', '---', '', '## 📊 概览'];
   lines.push(`- 报告周期：${type === 'weekly' ? '本周' : '今天'}`);
@@ -753,4 +782,5 @@ const server = http.createServer((req, res) => {
 
 server.listen(PORT, HOST, () => {
   console.log(`需求与问题池看板已启动: http://${HOST}:${PORT}`);
+  startReportScheduler();
 });
