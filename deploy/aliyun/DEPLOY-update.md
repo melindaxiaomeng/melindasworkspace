@@ -83,3 +83,20 @@ rsync -av --exclude='data' --exclude='.env' --exclude='.git' --exclude='node_mod
 - **数据不丢**：条目、笔记、上传的图片都在持久卷 `kanban-data`（挂 `/app/data`，含 `items.json` / `notes.json` / `uploads/`），重建镜像/容器不影响。
 - **改后端必须 build**：`server.js` 跑在容器里，光 `up -d` 不重建镜像则新代码不生效。
 - **改前端也要 build**：`index.html` 是被 `COPY` 进镜像的，必须重新 build（加 `--no-cache` 防旧文件层命中缓存）。
+
+## 六、AI 功能（异常诊断 / 自动摘要）上线说明
+
+AI 模块可选、靠环境变量开启，不破坏零依赖基调：
+
+- ECS 的 `deploy/aliyun/.env` 里加 `AI_API_KEY`（DeepSeek key）。**不设则看板自动隐藏 AI 功能**（`/api/config` 返回 `aiEnabled:false`）。
+- 想更强语义检索，在 `.env` 加 `AI_EMBED_BASE_URL` / `AI_EMBED_MODEL` / `AI_EMBED_API_KEY`（如 SiliconFlow 的 `BAAI/bge-m3`）。**留空则用本地 TF-IDF 兜底**，无需任何额外服务。
+- `AI_MOCK=1` 仅本地调试用，线上务必设 `0`。
+
+上线后验证 AI 接口真正进容器：
+
+```bash
+echo -n "容器内 aiEnabled: "; docker exec kanban-pool curl -s http://127.0.0.1:3000/api/config | grep -o 'aiEnabled":[a-z]*'
+# 期望 true（已配 AI_API_KEY）
+```
+
+前端改动含 AI 按钮与诊断渲染，确认线上 `index.html` 含 `aiDiagnose` / `aiSummaryBtn`。

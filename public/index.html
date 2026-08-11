@@ -176,6 +176,32 @@
   }
   .card .result .rl { font-weight: 600; color: #1f9d57; }
 
+  /* AI 诊断区块 */
+  .card .card-ai { margin: 2px 0 4px; }
+  .card .ai-btn {
+    font-size: 11.5px; padding: 3px 9px; border-radius: 7px;
+    border: 1px solid #c9d8ff; background: #eef3ff; color: #2b56c9; cursor: pointer;
+    transition: background .15s;
+  }
+  .card .ai-btn:hover { background: #e2ebff; }
+  .card .ai-btn:disabled { opacity: .6; cursor: default; }
+  .card .ai-box {
+    margin-top: 8px; padding: 10px 12px; background: #f4f8ff;
+    border: 1px solid #dbe6ff; border-left: 3px solid var(--accent);
+    border-radius: 8px; font-size: 12.5px; line-height: 1.55;
+  }
+  .card .ai-box h5 { margin: 0 0 6px; font-size: 12.5px; color: #2b56c9; }
+  .card .ai-box .ai-sub { font-weight: 600; color: #44506b; margin: 8px 0 3px; }
+  .card .ai-box .ai-analysis { color: #33415c; white-space: pre-wrap; margin: 2px 0; }
+  .card .ai-box ul { margin: 4px 0; padding-left: 18px; }
+  .card .ai-box li { margin: 2px 0; }
+  .card .ai-box .ai-refs { margin-top: 8px; border-top: 1px dashed #c9d8ff; padding-top: 6px; }
+  .card .ai-box .ai-ref { font-size: 12px; color: #44506b; margin: 4px 0; }
+  .card .ai-box .ai-ref b { color: #2b56c9; }
+  .card .ai-box .ai-ref-result { color: #66708a; }
+  .card .ai-box .ai-badge { display: inline-block; font-size: 11px; color: #b06a00; background: #fff4e0; border: 1px solid #ffe0a8; padding: 1px 7px; border-radius: 6px; margin-bottom: 6px; }
+  .card .ai-box .ai-loading { color: #66708a; }
+
   /* 卡片图片缩略图 */
   .card-images { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 0 8px; }
   .card-images img {
@@ -496,7 +522,8 @@
     <div class="field">
       <label>处理结果</label>
       <textarea id="f-result" placeholder="解决方案 / 结论 / 产出，如：已上线 v2.3，转化率 +12%"></textarea>
-      <div class="hint">记录最终的处理结论（通常在完成时填写）</div>
+      <div class="field-actions"><button type="button" class="btn-ghost" id="aiSummaryBtn">AI 摘要</button></div>
+      <div class="hint">记录最终的处理结论（通常在完成时填写）。也可点「AI 摘要」自动生成一句话复盘。</div>
     </div>
 
     <div class="field">
@@ -659,6 +686,7 @@ function populateSources() {
 }
 
 let authRequired = false;
+let aiEnabled = false;
 function getToken() { return localStorage.getItem('kanban_token') || ''; }
 function setToken(t) { if (t) localStorage.setItem('kanban_token', t); else localStorage.removeItem('kanban_token'); }
 
@@ -700,6 +728,7 @@ async function boot() {
     const r = await fetch('/api/config');
     const cfg = await r.json();
     authRequired = !!cfg.authRequired;
+    aiEnabled = !!cfg.aiEnabled;
   } catch (e) { authRequired = false; }
   if (authRequired && !getToken()) { showLogin(); return; }
   if (authRequired) {
@@ -787,6 +816,8 @@ function cardEl(it) {
     <div class="summary">${escapeHtml(it.summary) || '<span style="color:var(--muted)">（无内容概述）</span>'}</div>
     ${it.result ? `<div class="result"><span class="rl">结果：</span>${escapeHtml(it.result)}</div>` : ''}
     ${it.images && it.images.length ? `<div class="card-images">${it.images.map((u) => `<img src="${escapeHtml(u)}" data-img="${escapeHtml(u)}" alt="图片" loading="lazy">`).join('')}</div>` : ''}
+    <div class="card-ai"><button class="ai-btn" data-act="ai">AI 分析</button></div>
+    <div class="ai-box" data-ai></div>
     <div class="meta">
       ${it.source ? `<span class="tag-src">${escapeHtml(it.source)}</span>` : ''}
       ${it.person ? `<span class="tag-person">${escapeHtml(it.person)}</span>` : ''}
@@ -806,6 +837,8 @@ function cardEl(it) {
   });
   el.addEventListener('dragend', () => el.classList.remove('dragging'));
   el.addEventListener('click', (e) => {
+    const act = e.target.dataset && e.target.dataset.act;
+    if (act === 'ai') { aiDiagnose(it, el.querySelector('[data-ai]')); return; }
     if (e.target.classList.contains('del')) { deleteItem(it.id); return; }
     const mv = e.target.dataset && e.target.dataset.move;
     if (mv) { moveItem(it.id, mv); return; }
@@ -878,6 +911,7 @@ $('#logoutBtn').addEventListener('click', () => {
 $('#cancelBtn').addEventListener('click', closeModal);
 $('#modalMask').addEventListener('click', (e) => { if (e.target === $('#modalMask')) closeModal(); });
 
+$('#aiSummaryBtn').addEventListener('click', aiSummarize);
 $('#saveBtn').addEventListener('click', async () => {
   const payload = {
     source: $('#f-source').value.trim(),
@@ -904,6 +938,62 @@ $('#saveBtn').addEventListener('click', async () => {
   closeModal();
   await load();
 });
+
+// ---- AI 诊断 / 摘要 ----
+async function aiDiagnose(it, box) {
+  if (!box) return;
+  if (!aiEnabled) {
+    box.innerHTML = '<div class="ai-loading">AI 未启用：服务端需配置 AI_API_KEY（本地可设 AI_MOCK=1 体验）。</div>';
+    return;
+  }
+  const btn = box.previousElementSibling ? box.previousElementSibling.querySelector('[data-act="ai"]') : null;
+  if (btn) { btn.disabled = true; btn.textContent = '分析中…'; }
+  box.innerHTML = '<div class="ai-loading">AI 正在检索历史类似问题与排查路径…</div>';
+  try {
+    const res = await api('/api/ai/diagnose', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ summary: it.summary || '', result: it.result || '', body: '' }),
+    });
+    if (!res.ok) { box.innerHTML = '<div class="ai-loading">AI 接口返回 ' + res.status + '，请检查服务端日志。</div>'; return; }
+    const r = await res.json();
+    if (r.error) { box.innerHTML = '<div class="ai-loading">AI 未配置：' + escapeHtml(r.error) + '。服务端需设置 AI_API_KEY（本地可设 AI_MOCK=1）。</div>'; return; }
+    const refs = (r.references || []).map((rf) =>
+      '<div class="ai-ref"><b>' + escapeHtml(rf.source) + '</b>：' + escapeHtml(rf.title) +
+      '<br><span class="ai-ref-result">处理结论：' + escapeHtml(rf.result || '—') + '</span></div>'
+    ).join('');
+    const checklist = (r.checklist || []).map((c) => '<li>' + escapeHtml(c) + '</li>').join('');
+    box.innerHTML =
+      (r.mock ? '<div class="ai-badge">Mock 模式（未连真实模型）</div>' : '') +
+      '<h5>AI 诊断与排查建议</h5>' +
+      (r.analysis ? '<div class="ai-analysis">' + escapeHtml(r.analysis) + '</div>' : '') +
+      (checklist ? '<div class="ai-sub">排查 Checklist</div><ul>' + checklist + '</ul>' : '') +
+      (r.suggestion ? '<div class="ai-analysis">' + escapeHtml(r.suggestion) + '</div>' : '') +
+      (refs ? '<div class="ai-refs"><div class="ai-sub">类似问题处理参考</div>' + refs + '</div>' : '');
+  } catch (e) {
+    box.innerHTML = '<div class="ai-loading">诊断失败：' + escapeHtml(e.message || String(e)) + '</div>';
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'AI 分析'; }
+  }
+}
+
+async function aiSummarize() {
+  const summary = $('#f-summary').value.trim();
+  if (!summary) { alert('请先填写内容概述'); return; }
+  if (!aiEnabled) { alert('AI 未启用：服务端需配置 AI_API_KEY（本地可设 AI_MOCK=1 体验）。'); return; }
+  const btn = $('#aiSummaryBtn');
+  const old = btn.textContent; btn.disabled = true; btn.textContent = '生成中…';
+  try {
+    const res = await api('/api/ai/summarize', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ summary: summary, result: $('#f-result').value, body: '' }),
+    });
+    if (!res.ok) { alert('AI 接口返回 ' + res.status); return; }
+    const r = await res.json();
+    if (r.error) { alert('AI 未配置：' + r.error); return; }
+    if (r.summary) $('#f-result').value = r.summary;
+  } catch (e) { alert('摘要生成失败：' + (e.message || e)); }
+  finally { btn.disabled = false; btn.textContent = old; }
+}
 
 // ---- 图片上传 / 缩略图 / 灯箱 ----
 function renderImgThumbs() {

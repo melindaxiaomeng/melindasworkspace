@@ -7,9 +7,19 @@ const path = require('path');
 const HOST = process.env.HOST || '0.0.0.0';
 const PORT = process.env.PORT || 3000;
 const API_TOKEN = process.env.API_TOKEN || '';
+// AI 配置（只读环境变量，不写死密钥）
+const AI_API_KEY = process.env.AI_API_KEY || '';
+const AI_BASE_URL = (process.env.AI_BASE_URL || 'https://api.deepseek.com/v1').replace(/\/$/, '');
+const AI_MODEL = process.env.AI_MODEL || 'deepseek-chat';
+// embedding：DeepSeek 无 embedding 模型，建议填 SiliconFlow/Jina/OpenAI；留空则本地 TF-IDF 兜底
+const AI_EMBED_API_KEY = process.env.AI_EMBED_API_KEY || AI_API_KEY;
+const AI_EMBED_BASE_URL = (process.env.AI_EMBED_BASE_URL || '').replace(/\/$/, '');
+const AI_EMBED_MODEL = process.env.AI_EMBED_MODEL || '';
+const AI_MOCK = process.env.AI_MOCK === '1';
 const ROOT = __dirname;
 const PUBLIC_DIR = path.join(ROOT, 'public');
 const DATA_DIR = path.join(ROOT, 'data');
+const DATA_FILE_EMBED = path.join(DATA_DIR, 'embeddings.json');
 const DATA_FILE = path.join(DATA_DIR, 'items.json');
 const DATA_FILE_NOTES = path.join(DATA_DIR, 'notes.json');
 const UPLOAD_DIR = path.join(DATA_DIR, 'uploads');
@@ -142,6 +152,214 @@ function handleUpload(req, res) {
   });
 }
 
+// ===================== AI 模块（RAG 异常诊断 + 自动摘要）=====================
+// 轻量 RAG：本地 TF-IDF 兜底（零依赖）+ 可选外部 embedding；cosine 检索 top-k；LLM 生成结构化结果
+const crypto = require('crypto');
+
+function aiChat(system, user, opts) {
+  opts = opts || {};
+  if (AI_MOCK) return Promise.resolve('__MOCK__');
+  if (!AI_API_KEY) throw new Error('AI_API_KEY 未配置');
+  return fetch(AI_BASE_URL + '/chat/completions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + AI_API_KEY },
+    body: JSON.stringify({
+      model: AI_MODEL,
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user', content: user },
+      ],
+      temperature: opts.temperature != null ? opts.temperature : 0.3,
+      response_format: opts.json ? { type: 'json_object' } : undefined,
+    }),
+  })
+    .then((r) => {
+      if (!r.ok) return r.text().then((t) => Promise.reject(new Error('LLM ' + r.status + ': ' + t.slice(0, 200))));
+      return r.json();
+    })
+    .then((j) => j.choices && j.choices[0] && j.choices[0].message ? j.choices[0].message.content || '' : '');
+}
+
+function aiEmbed(text) {
+  if (!AI_EMBED_MODEL) return Promise.resolve(null);
+  if (!AI_EMBED_API_KEY) throw new Error('AI_EMBED_API_KEY 未配置');
+  if (!AI_EMBED_BASE_URL) throw new Error('AI_EMBED_BASE_URL 未配置');
+  return fetch(AI_EMBED_BASE_URL + '/embeddings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + AI_EMBED_API_KEY },
+    body: JSON.stringify({ model: AI_EMBED_MODEL, input: text }),
+  })
+    .then((r) => {
+      if (!r.ok) return r.text().then((t) => Promise.reject(new Error('Embed ' + r.status + ': ' + t.slice(0, 200))));
+      return r.json();
+    })
+    .then((j) => (j.data && j.data[0] ? j.data[0].embedding || null : null));
+}
+
+// 本地 TF-IDF（零依赖兜底）
+function tokenize(text) {
+  const t = String(text || '').toLowerCase();
+  const toks = [];
+  const en = t.match(/[a-z0-9]+/g) || [];
+  toks.push.apply(toks, en);
+  const zh = t.replace(/[^\u4e00-\u9fff]/g, '');
+  for (let i = 0; i < zh.length; i++) {
+    toks.push(zh[i]);
+    if (i < zh.length - 1) toks.push(zh.slice(i, i + 2));
+  }
+  return toks;
+}
+function tfidfVecs(docs) {
+  const df = {};
+  const tokDocs = docs.map((d) => {
+    const tf = {};
+    tokenize(d.text).forEach((t) => (tf[t] = (tf[t] || 0) + 1));
+    Object.keys(tf).forEach((t) => (df[t] = (df[t] || 0) + 1));
+    return tf;
+  });
+  const N = docs.length || 1;
+  return tokDocs.map((tf) => {
+    const vec = {};
+    let norm = 0;
+    for (const t in tf) {
+      const idf = Math.log((N + 1) / (df[t] + 1)) + 1;
+      const w = (1 + Math.log(tf[t])) * idf;
+      vec[t] = w;
+      norm += w * w;
+    }
+    norm = Math.sqrt(norm) || 1;
+    for (const t in vec) vec[t] /= norm;
+    return vec;
+  });
+}
+function cosine(a, b) {
+  let dot = 0;
+  for (const k in a) dot += (a[k] || 0) * (b[k] || 0);
+  return dot;
+}
+
+// 语料：已完成卡片（summary+result）+ 笔记（title+body）
+function buildCorpus() {
+  const items = readItems();
+  const notes = readNotes();
+  const docs = [];
+  for (const it of items) {
+    if (it.status !== 'done') continue;
+    const text = [it.summary, it.result].filter(Boolean).join('\n');
+    if (text.trim()) docs.push({ id: it.id, type: 'item', text: text, title: it.summary, source: it.source, result: it.result });
+  }
+  for (const n of notes) {
+    const text = [n.title, n.body].filter(Boolean).join('\n');
+    if (text.trim()) docs.push({ id: n.id, type: 'note', text: text, title: n.title, source: '', result: n.body });
+  }
+  return docs;
+}
+
+// 取向量：外部 embedding 带缓存；本地 TF-IDF 实时算
+async function getVectors(corpus) {
+  if (AI_EMBED_MODEL && AI_EMBED_BASE_URL) {
+    const hash = crypto.createHash('md5').update(corpus.map((c) => c.id + ':' + c.text).join('|')).digest('hex');
+    let cache = {};
+    try { cache = JSON.parse(fs.readFileSync(DATA_FILE_EMBED, 'utf8')); } catch (e) {}
+    if (cache.hash === hash && Array.isArray(cache.vectors)) return cache.vectors;
+    const vectors = [];
+    for (const c of corpus) {
+      const v = await aiEmbed(c.text);
+      vectors.push({ id: c.id, vec: v });
+    }
+    try { fs.writeFileSync(DATA_FILE_EMBED, JSON.stringify({ hash: hash, vectors: vectors })); } catch (e) {}
+    return vectors;
+  }
+  const vecs = tfidfVecs(corpus);
+  return corpus.map((c, i) => ({ id: c.id, vec: vecs[i] }));
+}
+
+async function retrieveTopK(queryText, k) {
+  const corpus = buildCorpus();
+  if (!corpus.length) return { corpus: corpus, refs: [] };
+  const vectors = await getVectors(corpus);
+  const qVec = AI_EMBED_MODEL && AI_EMBED_BASE_URL
+    ? (await aiEmbed(queryText))
+    : tfidfVecs([{ text: queryText }])[0];
+  if (!qVec) return { corpus: corpus, refs: [] };
+  const scored = corpus
+    .map((c, i) => ({ c: c, score: cosine(qVec, vectors[i].vec) }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, k);
+  const refs = scored.filter((s) => s.score > 0.02).map((s) => ({
+    source: s.c.type === 'item' ? ('历史卡片' + (s.c.source ? '·' + s.c.source : '')) : '笔记/技术文档',
+    title: s.c.title || '',
+    result: s.c.result || '',
+    score: Number(s.score.toFixed(3)),
+  }));
+  return { corpus: corpus, refs: refs };
+}
+
+function mockDiagnose(item, refs) {
+  const checklist = [
+    '确认报错/超时的复现条件与影响范围（环境、时间段、数据量级）',
+    '拉取服务端/客户端日志，定位超时或 500 发生的具体环节',
+    '检查网络波动、网关/负载均衡、DNS 解析是否异常',
+    '排查数据库慢查询、锁等待、连接池是否打满',
+    '确认分布式/异步任务状态与切片策略是否合理',
+    '必要时临时降级或切片（如 15min 临时切片）并观察指标',
+  ];
+  const refText = refs.length
+    ? refs.map((r, i) => (i + 1) + '. [' + r.source + '] ' + r.title + ' → 处理结论：' + r.result).join('\n')
+    : '（暂无历史类似记录可参考）';
+  return {
+    mock: true,
+    references: refs,
+    analysis: '【Mock 模式】已基于本地检索找到 ' + refs.length + ' 条相似记录。当前问题疑似与数据量/超时或下游服务异常相关，建议优先排查拉取链路的超时与切片策略。',
+    checklist: checklist,
+    suggestion: '可参考已有处理经验：\n' + refText + '\n\n如仍无法解决，建议按上述 Checklist 逐项排查并向相关同学同步进展。',
+  };
+}
+function mockSummarize(item) {
+  const s = String(item.summary || '').slice(0, 30);
+  return { mock: true, summary: '【Mock】已处理「' + s + '」相关问题，定位为数据拉取超时，已通过调整切片策略与检查任务状态完成恢复。（配置 AI_API_KEY 后获取真实摘要）' };
+}
+
+async function diagnose(item) {
+  const text = [item.summary, item.result, item.body].filter(Boolean).join('\n');
+  const top = await retrieveTopK(text, 5);
+  const refs = top.refs;
+  if (AI_MOCK) return mockDiagnose(item, refs);
+  if (!AI_API_KEY) return { error: 'AI_API_KEY 未配置', references: refs, checklist: [], analysis: '', suggestion: '' };
+  const refText = refs.length
+    ? refs.map((r, i) => (i + 1) + '. [' + r.source + '] ' + r.title + '\n   处理结论：' + r.result).join('\n')
+    : '（无历史类似记录）';
+  const sys = '你是资深 SRE / 技术支持专家，擅长根因分析与故障排查。只输出中文，结构清晰。';
+  const user =
+    '【当前问题】\n' + (item.summary || '') + '\n' + (item.body || '') + '\n\n' +
+    '【历史类似问题参考（已按相关度排序）】\n' + refText + '\n\n' +
+    '请输出 JSON：{ "analysis": "对当前问题的初步判断（2-3 句）", "checklist": ["排查步骤1","排查步骤2"], "suggestion": "给一线同学的处理建议（含可参考的历史经验）" }';
+  let raw;
+  try { raw = await aiChat(sys, user, { json: true }); } catch (e) { return { error: e.message, references: refs, checklist: [], analysis: '', suggestion: '' }; }
+  let parsed = {};
+  try { parsed = JSON.parse(raw); } catch (e) { parsed = { analysis: raw }; }
+  return {
+    references: refs,
+    analysis: parsed.analysis || '',
+    checklist: Array.isArray(parsed.checklist) ? parsed.checklist : [],
+    suggestion: parsed.suggestion || '',
+  };
+}
+
+async function summarize(item) {
+  const text = [item.summary, item.result, item.body].filter(Boolean).join('\n');
+  const top = await retrieveTopK(text, 3);
+  const refs = top.refs;
+  if (AI_MOCK) return mockSummarize(item);
+  if (!AI_API_KEY) return { error: 'AI_API_KEY 未配置' };
+  const refText = refs.length ? '历史类似：' + refs.map((r) => r.title).join('；') : '';
+  const sys = '你是技术支持复盘助手。用一句话中文概括问题解决结果，不超过 60 字，不解释、不加引号。';
+  const user = '问题：' + (item.summary || '') + '\n处理过程/上下文：' + (item.result || item.body || '') + '\n' + refText + '\n\n输出一句话结果摘要：';
+  let raw;
+  try { raw = await aiChat(sys, user, { temperature: 0.2 }); } catch (e) { return { error: e.message }; }
+  return { summary: String(raw || '').trim().replace(/^["'】]+|["'】]+$/g, '') };
+}
+
 // 应用层令牌鉴权：未配置 API_TOKEN 时关闭（开发模式）
 function authOk(req) {
   if (!API_TOKEN) return true;
@@ -157,7 +375,7 @@ const server = http.createServer((req, res) => {
   if (pathname.startsWith('/api/')) {
     // 公开配置：前端据此决定是否展示登录页
     if (pathname === '/api/config') {
-      return sendJSON(res, 200, { authRequired: !!API_TOKEN });
+      return sendJSON(res, 200, { authRequired: !!API_TOKEN, aiEnabled: !!(AI_API_KEY || AI_MOCK) });
     }
     // 应用层令牌鉴权
     if (API_TOKEN && !authOk(req)) {
@@ -171,6 +389,28 @@ const server = http.createServer((req, res) => {
     req.on('data', (chunk) => (body += chunk));
     req.on('end', () => {
       try {
+        // ===== AI：异常诊断 + 自动摘要（异步，内部独立 catch）=====
+        if (req.method === 'POST' && pathname === '/api/ai/diagnose') {
+          (async () => {
+            try {
+              const item = JSON.parse(body || '{}');
+              const r = await diagnose({ summary: item.summary || '', result: item.result || '', body: item.body || '' });
+              sendJSON(res, 200, r);
+            } catch (e) { sendJSON(res, 502, { error: e.message }); }
+          })();
+          return;
+        }
+        if (req.method === 'POST' && pathname === '/api/ai/summarize') {
+          (async () => {
+            try {
+              const item = JSON.parse(body || '{}');
+              const r = await summarize({ summary: item.summary || '', result: item.result || '', body: item.body || '' });
+              sendJSON(res, 200, r);
+            } catch (e) { sendJSON(res, 502, { error: e.message }); }
+          })();
+          return;
+        }
+
         // 列出全部
         if (req.method === 'GET' && pathname === '/api/items') {
           return sendJSON(res, 200, readItems());
