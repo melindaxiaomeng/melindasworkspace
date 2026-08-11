@@ -1,0 +1,31 @@
+services:
+  kanban:
+    build:
+      context: ../..
+    image: kanban-pool:latest
+    container_name: kanban-pool
+    restart: unless-stopped
+
+    # —— 隔离：仅绑定本机回环，不直连公网 ——
+    # 由服务器上已有的 nginx（其他项目共用的那个）反代进来，
+    # 这样端口不外露、与其他 Web 项目走同一入口、互不冲突。
+    ports:
+      - "127.0.0.1:3777:3000"
+
+    environment:
+      - HOST=0.0.0.0
+      - PORT=3000
+      - API_TOKEN=${API_TOKEN}
+
+    # —— 隔离：资源上限，避免抢占同服务器其他项目 ——
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.50"
+
+    volumes:
+      - kanban-data:/app/data
+
+volumes:
+  kanban-data:
