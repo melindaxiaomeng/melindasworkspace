@@ -348,6 +348,18 @@
     .note-body .md table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
     .note-body .md th, .note-body .md td { padding: 6px 9px; font-size: 12.5px; }
   }
+
+  /* 笔记层级树（父子嵌套） */
+  .note-children { padding-left: 16px; margin-left: 7px; border-left: 2px solid var(--line); }
+  .note-caret {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 16px; height: 16px; margin-right: 2px; flex: 0 0 auto;
+    color: var(--muted); cursor: pointer; font-size: 10px; user-select: none;
+    transition: color .12s;
+  }
+  .note-caret:hover { color: var(--accent); }
+  .note-caret-empty { visibility: hidden; cursor: default; }
+  @media (max-width: 600px) { .note-children { padding-left: 10px; margin-left: 4px; } }
 </style>
 </head>
 <body>
@@ -511,6 +523,10 @@
     <div class="field">
       <label>标题</label>
       <input id="f-note-title" placeholder="笔记标题" />
+    </div>
+    <div class="field">
+      <label>父笔记（留空为顶级）</label>
+      <select id="f-note-parent"></select>
     </div>
     <div class="field">
       <label>内容（支持 Markdown）</label>
@@ -1013,6 +1029,76 @@ async function loadNotes() {
   } catch (e) { /* 401 已处理 */ }
 }
 
+// 前端：判断 maybeDescId 是否为 ancestorId 的后代（父笔记下拉防环）
+function noteIsDescendant(src, maybeDescId, ancestorId) {
+  const byId = {};
+  src.forEach((n) => { byId[n.id] = n; });
+  const seen = new Set();
+  let cur = byId[maybeDescId];
+  while (cur && cur.parent) {
+    if (cur.parent === ancestorId) return true;
+    if (seen.has(cur.id)) return false;
+    seen.add(cur.id);
+    cur = byId[cur.parent];
+  }
+  return false;
+}
+
+// 把扁平笔记列表构建成树（children 已按时间倒序）
+function buildNoteTree(src) {
+  const byId = {};
+  src.forEach((n) => { byId[n.id] = Object.assign({}, n, { children: [] }); });
+  const roots = [];
+  Object.keys(byId).forEach((id) => {
+    const n = byId[id];
+    if (n.parent && byId[n.parent]) byId[n.parent].children.push(n);
+    else roots.push(n);
+  });
+  const sortByTime = (arr) => arr.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+  const walk = (x) => { sortByTime(x.children); x.children.forEach(walk); };
+  sortByTime(roots);
+  roots.forEach(walk);
+  return roots;
+}
+
+function renderNoteNode(node) {
+  const el = document.createElement('div');
+  el.className = 'note';
+  el.dataset.id = node.id;
+  const hasKids = node.children && node.children.length;
+  el.innerHTML = `
+    <div class="note-head">
+      <span class="note-caret${hasKids ? '' : ' note-caret-empty'}">${hasKids ? '▾' : '•'}</span>
+      <span class="note-title">${escapeHtml(node.title) || '<span style="color:var(--muted)">（无标题）</span>'}</span>
+      <span class="note-date">${fmtDate(node.updatedAt || node.createdAt)}</span>
+      <span class="note-actions">
+        <button data-act="edit">编辑</button>
+        <button data-act="del" class="del">删除</button>
+      </span>
+    </div>
+    <div class="note-body"><div class="md">${renderMarkdown(node.body || '')}</div></div>
+    ${hasKids ? '<div class="note-children"></div>' : ''}`;
+  if (hasKids) {
+    const kidsWrap = el.querySelector('.note-children');
+    node.children.forEach((c) => kidsWrap.appendChild(renderNoteNode(c)));
+  }
+  el.querySelector('.note-head').addEventListener('click', (e) => {
+    if (e.target.closest('.note-actions') || e.target.closest('.note-caret')) return;
+    el.classList.toggle('open');
+  });
+  el.querySelector('.note-caret').addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (!hasKids) return;
+    const collapsed = el.classList.toggle('collapsed');
+    e.currentTarget.textContent = collapsed ? '▸' : '▾';
+    const kids = el.querySelector('.note-children');
+    if (kids) kids.style.display = collapsed ? 'none' : '';
+  });
+  el.querySelector('[data-act="edit"]').addEventListener('click', () => openNoteModal(node));
+  el.querySelector('[data-act="del"]').addEventListener('click', () => deleteNote(node.id));
+  return el;
+}
+
 function renderNotes() {
   const list = $('#notesList');
   list.innerHTML = '';
@@ -1021,29 +1107,10 @@ function renderNotes() {
     list.innerHTML = '<div class="empty" style="text-align:center;padding:30px;color:var(--muted)">还没有笔记，点「+ 新建笔记」开始写</div>';
     return;
   }
-  const sorted = [...notes].sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
-  for (const n of sorted) {
-    const el = document.createElement('div');
-    el.className = 'note';
-    el.dataset.id = n.id;
-    el.innerHTML = `
-      <div class="note-head">
-        <span class="note-title">${escapeHtml(n.title) || '<span style="color:var(--muted)">（无标题）</span>'}</span>
-        <span class="note-date">${fmtDate(n.updatedAt || n.createdAt)}</span>
-        <span class="note-actions">
-          <button data-act="edit">编辑</button>
-          <button data-act="del" class="del">删除</button>
-        </span>
-      </div>
-      <div class="note-body"><div class="md">${renderMarkdown(n.body || '')}</div></div>`;
-    el.querySelector('.note-head').addEventListener('click', (e) => {
-      if (e.target.closest('.note-actions')) return;
-      el.classList.toggle('open');
-    });
-    el.querySelector('[data-act="edit"]').addEventListener('click', () => openNoteModal(n));
-    el.querySelector('[data-act="del"]').addEventListener('click', () => deleteNote(n.id));
-    list.appendChild(el);
-  }
+  const roots = buildNoteTree(notes);
+  const frag = document.createDocumentFragment();
+  roots.forEach((r) => frag.appendChild(renderNoteNode(r)));
+  list.appendChild(frag);
 }
 
 function openNoteModal(n) {
@@ -1051,6 +1118,15 @@ function openNoteModal(n) {
   $('#noteModalTitle').textContent = n ? '编辑笔记' : '新建笔记';
   $('#f-note-title').value = n ? n.title : '';
   $('#f-note-body').value = n ? n.body : '';
+  // 父笔记下拉：排除自身及其后代（防环）
+  const sel = $('#f-note-parent');
+  const selfId = n ? n.id : null;
+  const opts = ['<option value="">（无 / 顶级）</option>'];
+  notes
+    .filter((x) => x.id !== selfId && !noteIsDescendant(notes, x.id, selfId))
+    .forEach((x) => opts.push(`<option value="${escapeHtml(x.id)}">${escapeHtml(x.title || '（无标题）')}</option>`));
+  sel.innerHTML = opts.join('');
+  sel.value = n && n.parent ? n.parent : '';
   $('#noteModalMask').classList.add('show');
   setTimeout(() => $('#f-note-title').focus(), 50);
 }
@@ -1168,7 +1244,7 @@ $('#addNoteBtn').addEventListener('click', () => openNoteModal(null));
 $('#noteCancelBtn').addEventListener('click', closeNoteModal);
 $('#noteModalMask').addEventListener('click', (e) => { if (e.target === $('#noteModalMask')) closeNoteModal(); });
 $('#noteSaveBtn').addEventListener('click', async () => {
-  const payload = { title: $('#f-note-title').value.trim(), body: $('#f-note-body').value };
+  const payload = { title: $('#f-note-title').value.trim(), body: $('#f-note-body').value, parent: $('#f-note-parent').value || null };
   if (!payload.title && !payload.body.trim()) { alert('标题和内容不能都为空'); return; }
   if (editingNoteId) {
     await api(`/api/notes/${encodeURIComponent(editingNoteId)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });

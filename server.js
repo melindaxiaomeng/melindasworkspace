@@ -66,6 +66,31 @@ function writeNotes(notes) {
   fs.writeFileSync(DATA_FILE_NOTES, JSON.stringify(notes, null, 2));
 }
 
+// 判断 maybeDescId 是否为 ancestorId 的后代（用于防止父子关系成环）
+function isDescendant(notes, maybeDescId, ancestorId) {
+  const byId = {};
+  notes.forEach((n) => { byId[n.id] = n; });
+  const seen = new Set();
+  let cur = byId[maybeDescId];
+  while (cur && cur.parent) {
+    if (cur.parent === ancestorId) return true;
+    if (seen.has(cur.id)) return false; // 已有环，安全退出
+    seen.add(cur.id);
+    cur = byId[cur.parent];
+  }
+  return false;
+}
+
+// 校验 parent：必须是已存在且无环的笔记 id，否则返回 null
+function resolveParent(notes, pid, selfId) {
+  if (!pid) return null;
+  pid = String(pid);
+  if (pid === selfId) return null;
+  if (!notes.some((n) => n.id === pid)) return null;
+  if (isDescendant(notes, pid, selfId)) return null; // pid 是 selfId 的后代 → 成环
+  return pid;
+}
+
 const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
@@ -225,6 +250,7 @@ const server = http.createServer((req, res) => {
             id: 'nt_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
             title: String(note.title || '').trim(),
             body: String(note.body || ''),
+            parent: resolveParent(notes, note.parent, null),
             createdAt: now,
             updatedAt: now,
           };
@@ -240,9 +266,13 @@ const server = http.createServer((req, res) => {
           const notes = readNotes();
           const idx = notes.findIndex((n) => n.id === id);
           if (idx === -1) return sendJSON(res, 404, { error: 'not found' });
-          const allowed = ['title', 'body'];
+          const allowed = ['title', 'body', 'parent'];
           for (const k of allowed) {
             if (patch[k] === undefined) continue;
+            if (k === 'parent') {
+              notes[idx].parent = resolveParent(notes, patch[k], id);
+              continue;
+            }
             notes[idx][k] = k === 'title' ? String(patch[k]).trim() : String(patch[k]);
           }
           notes[idx].updatedAt = new Date().toISOString();
@@ -255,8 +285,14 @@ const server = http.createServer((req, res) => {
           const id = decodeURIComponent(pathname.split('/').pop());
           const notes = readNotes();
           const before = notes.length;
+          const del = notes.find((n) => n.id === id);
           const next = notes.filter((n) => n.id !== id);
           if (next.length === before) return sendJSON(res, 404, { error: 'not found' });
+          // 删除父笔记时，其子笔记上移一级（挂到被删笔记的父级），避免孤儿
+          if (del) {
+            const liftTo = del.parent || null;
+            next.forEach((n) => { if (n.parent === id) n.parent = liftTo; });
+          }
           writeNotes(next);
           return sendJSON(res, 200, { ok: true });
         }
