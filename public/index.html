@@ -307,7 +307,7 @@
   }
 
   /* —— 卡片备注（可折叠） —— */
-  .card .note-box { margin-top: 8px; border: 1px solid #e3e8f0; border-radius: 10px; overflow: hidden; background: #fcfcfd; }
+  .card .note-box { margin: 8px 0 10px; border: 1px solid #e3e8f0; border-radius: 10px; overflow: hidden; background: #fcfcfd; }
   .card .note-box .note-head {
     display: flex; align-items: center; gap: 6px; padding: 8px 12px;
     cursor: pointer; user-select: none; background: #f7f9fc;
@@ -1064,6 +1064,9 @@ function cardEl(it) {
   });
   el.addEventListener('dragend', () => el.classList.remove('dragging'));
   el.addEventListener('click', (e) => {
+    // 备注折叠：点 note-head 就地展开/收起，不触发卡片编辑
+    const nh = e.target.closest('.note-head');
+    if (nh) { e.stopPropagation(); nh.closest('.note-box').classList.toggle('collapsed'); return; }
     const act = e.target.dataset && e.target.dataset.act;
     if (act === 'ai') { aiDiagnose(it, el.querySelector('[data-ai]')); return; }
     if (e.target.classList.contains('del')) { deleteItem(it.id); return; }
@@ -1072,12 +1075,6 @@ function cardEl(it) {
     if (e.target.dataset && e.target.dataset.img) { openLightbox(e.target.dataset.img); return; }
     openModal(it);
   });
-  const nb = el.querySelector('.note-box');
-  if (nb) {
-    const nh = nb.querySelector('.note-head');
-    if (nh) nh.addEventListener('click', (e) => { e.stopPropagation(); nb.classList.toggle('collapsed'); });
-    nb.addEventListener('click', (e) => e.stopPropagation()); // 备注区内部点击不触发卡片编辑
-  }
   return el;
 }
 
