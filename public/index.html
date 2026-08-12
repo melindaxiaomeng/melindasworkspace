@@ -317,6 +317,7 @@
   .card .note-box .note-head .nh-chevron { width: 14px; height: 14px; color: #94a3b8; transition: transform .2s ease; }
   .card .note-box:not(.collapsed) .note-head .nh-chevron { transform: rotate(-90deg); color: #2b56c9; }
   .card .note-box .note-body {
+    display: block;
     padding: 10px 12px 12px; font-size: 12.5px; line-height: 1.65; color: #334155;
     white-space: pre-wrap; word-break: break-word;
   }
@@ -549,7 +550,7 @@
   .note-actions button { border: 1px solid var(--line); background: #fff; color: var(--muted); border-radius: 7px; padding: 4px 10px; font-size: 12px; cursor: pointer; }
   .note-actions button:hover { color: var(--accent); border-color: var(--accent); }
   .note-actions .del:hover { color: var(--pri-high); border-color: var(--pri-high); }
-  .note-body { padding: 0 16px; border-top: 1px solid var(--line); display: none; }
+  .note .note-body { padding: 0 16px; border-top: 1px solid var(--line); display: none; }
   .note.open .note-body { display: block; padding-top: 14px; padding-bottom: 16px; }
   .note-body .md { font-size: 13.5px; line-height: 1.7; color: var(--ink); word-break: break-word; }
   .note-body .md h1, .note-body .md h2, .note-body .md h3 { margin: 14px 0 8px; line-height: 1.3; }
