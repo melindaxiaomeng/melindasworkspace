@@ -194,6 +194,8 @@
     box-shadow: 0 2px 8px rgba(59,108,255,.07), 0 1px 3px rgba(0,0,0,.04);
     font-size: 12.5px; line-height: 1.6; color: #33415c;
   }
+  /* 未生成 AI 结果时隐藏空容器，避免显示多余边框线 */
+  .card .ai-box:empty { display: none; }
   /* 面板头部 */
   .card .ai-box .ai-header {
     display: flex; align-items: center; gap: 6px;
@@ -1164,7 +1166,7 @@ async function aiDiagnose(it, box) {
       (refs ? '<div class="ai-section-title">类似问题处理参考</div><div class="ai-refs">' + refs + '</div>' : '') +
       '</div>';
     const aiHead = box.querySelector('.ai-header');
-    if (aiHead) aiHead.addEventListener('click', () => box.classList.toggle('collapsed'));
+    if (aiHead) aiHead.addEventListener('click', (e) => { e.stopPropagation(); box.classList.toggle('collapsed'); });
   } catch (e) {
     box.innerHTML = '<div class="ai-loading">诊断失败：' + escapeHtml(e.message || String(e)) + '</div>';
   } finally {
