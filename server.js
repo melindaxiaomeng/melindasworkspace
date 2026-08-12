@@ -604,6 +604,15 @@ const server = http.createServer((req, res) => {
           // POST 由 AI 报告接口内部调用，不单独暴露
           return;
         }
+        if (req.method === 'DELETE' && pathname.startsWith('/api/reports/')) {
+          const id = pathname.slice('/api/reports/'.length);
+          const reports = readReports();
+          const idx = reports.findIndex((r) => r.id === id);
+          if (idx === -1) return sendJSON(res, 404, { error: 'not found' });
+          reports.splice(idx, 1);
+          writeReports(reports);
+          return sendJSON(res, 200, { ok: true });
+        }
 
         // 列出全部
         if (req.method === 'GET' && pathname === '/api/items') {

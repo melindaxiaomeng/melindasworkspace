@@ -363,6 +363,12 @@
   .report-item-info .ri-desc { font-size: 11.5px; color: #64748b; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .report-item-date { font-size: 11.5px; color: #94a3b8; flex-shrink: 0; white-space: nowrap; }
   .report-item .ri-chevron { width: 16px; height: 16px; flex-shrink: 0; color: #94a3b8; transition: transform .2s ease; margin-left: 4px; }
+  .report-item .ri-del {
+    flex-shrink: 0; width: 22px; height: 22px; border-radius: 6px; border: 1px solid transparent;
+    background: transparent; color: #cbd5e1; cursor: pointer; font-size: 13px; line-height: 1;
+    display: flex; align-items: center; justify-content: center; transition: all .15s; margin-left: 2px;
+  }
+  .report-item .ri-del:hover { color: #ef4444; background: #fef2f2; border-color: #fecaca; }
   .report-item.open .ri-chevron { transform: rotate(-90deg); color: #2b56c9; }
   .report-item-body { padding: 0 16px 14px; }
   .report-item-body .report-card { margin-top: 4px; }
@@ -1666,15 +1672,30 @@ function renderReports() {
         '<div class="ri-desc">' + (r.summary || '—') + '</div>' +
       '</div>' +
       '<span class="report-item-date">' + fmtDate(r.createdAt) + '</span>' +
+      '<button class="ri-del" title="删除这份报告">✕</button>' +
       '<svg class="ri-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>' +
       '</div>';
   }).join('');
   list.querySelectorAll('.report-item').forEach((el) => {
+    const del = el.querySelector('.ri-del');
+    if (del) del.addEventListener('click', (e) => {
+      e.stopPropagation();
+      deleteReport(el.dataset.id);
+    });
     el.addEventListener('click', (e) => {
       if (e.target.closest('.report-item-body')) return; // 点击内容区不收起
       toggleReportItem(el);
     });
   });
+}
+
+async function deleteReport(id) {
+  if (!confirm('确定删除这份报告吗？')) return;
+  try {
+    const res = await api('/api/reports/' + id, { method: 'DELETE' });
+    if (res.ok) { loadReports(); }
+    else { alert('删除失败：HTTP ' + res.status); }
+  } catch (e) { alert('删除失败：' + (e.message || e)); }
 }
 
 function toggleReportItem(el) {
