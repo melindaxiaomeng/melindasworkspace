@@ -306,6 +306,22 @@
     .card .ai-box li { padding-left: 22px; }
   }
 
+  /* —— 卡片备注（可折叠） —— */
+  .card .note-box { margin-top: 8px; border: 1px solid #e3e8f0; border-radius: 10px; overflow: hidden; background: #fcfcfd; }
+  .card .note-box .note-head {
+    display: flex; align-items: center; gap: 6px; padding: 8px 12px;
+    cursor: pointer; user-select: none; background: #f7f9fc;
+  }
+  .card .note-box .note-head:hover { background: #eef2f8; }
+  .card .note-box .note-head .nh-label { font-size: 12px; font-weight: 600; color: #44506b; flex: 1; }
+  .card .note-box .note-head .nh-chevron { width: 14px; height: 14px; color: #94a3b8; transition: transform .2s ease; }
+  .card .note-box:not(.collapsed) .note-head .nh-chevron { transform: rotate(-90deg); color: #2b56c9; }
+  .card .note-box .note-body {
+    padding: 10px 12px 12px; font-size: 12.5px; line-height: 1.65; color: #334155;
+    white-space: pre-wrap; word-break: break-word;
+  }
+  .card .note-box.collapsed .note-body { display: none; }
+
   /* —— 周报·日报视图 —— */
   .reports-wrap { max-width: 960px; margin: 0 auto; padding: 0 12px 30px; }
   .reports-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
@@ -732,6 +748,11 @@
     </div>
 
     <div class="field">
+      <label>备注（详细背景 / 过程 / 链接，可多写；看板卡片默认折叠）</label>
+      <textarea id="f-note" placeholder="放比较多的信息：背景说明、关键进展、参考链接、待办事项等…"></textarea>
+    </div>
+
+    <div class="field">
       <label>图片 / 截图</label>
       <div class="img-upload">
         <input type="file" id="f-images" accept="image/*" multiple style="display:none" />
@@ -1023,6 +1044,7 @@ function cardEl(it) {
     ${it.images && it.images.length ? `<div class="card-images">${it.images.map((u) => `<img src="${escapeHtml(u)}" data-img="${escapeHtml(u)}" alt="图片" loading="lazy">`).join('')}</div>` : ''}
     <div class="card-ai"><button class="ai-btn" data-act="ai">AI 分析</button></div>
     <div class="ai-box" data-ai></div>
+    ${it.note ? `<div class="note-box collapsed"><div class="note-head"><span class="nh-label">📝 备注</span><svg class="nh-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></div><div class="note-body">${escapeHtml(it.note)}</div></div>` : ''}
     <div class="meta">
       ${it.source ? `<span class="tag-src">${escapeHtml(it.source)}</span>` : ''}
       ${it.person ? `<span class="tag-person">${escapeHtml(it.person)}</span>` : ''}
@@ -1050,6 +1072,12 @@ function cardEl(it) {
     if (e.target.dataset && e.target.dataset.img) { openLightbox(e.target.dataset.img); return; }
     openModal(it);
   });
+  const nb = el.querySelector('.note-box');
+  if (nb) {
+    nb.addEventListener('click', (e) => e.stopPropagation()); // 备注区内部点击不触发卡片编辑
+    const nh = nb.querySelector('.note-head');
+    if (nh) nh.addEventListener('click', () => nb.classList.toggle('collapsed'));
+  }
   return el;
 }
 
@@ -1083,6 +1111,7 @@ function openModal(it) {
   $('#f-dateEnd').value = it ? (it.dateEnd || '') : '';
   $('#f-summary').value = it ? it.summary : '';
   $('#f-result').value = it ? it.result : '';
+  $('#f-note').value = it ? (it.note || '') : '';
   $('#f-priority').value = it ? it.priority : '中';
   $('#f-status').value = it ? it.status : 'inbox';
   refreshCdd($('#f-priority'));
@@ -1126,6 +1155,7 @@ $('#saveBtn').addEventListener('click', async () => {
     dateEnd: $('#f-dateEnd').value,
     summary: $('#f-summary').value.trim(),
     result: $('#f-result').value.trim(),
+    note: $('#f-note').value,
     images: editingImages.filter((u) => typeof u === 'string' && u && !u.startsWith('__loading__')),
     priority: $('#f-priority').value,
     status: $('#f-status').value,

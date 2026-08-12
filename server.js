@@ -46,6 +46,7 @@ function normalizeItem(it) {
   if (it && it.dateStart === undefined) it.dateStart = '';
   if (it && it.dateEnd === undefined) it.dateEnd = '';
   if (it && !Array.isArray(it.images)) it.images = [];
+  if (it && it.note === undefined) it.note = '';
   return it;
 }
 
@@ -633,6 +634,7 @@ const server = http.createServer((req, res) => {
             dateEnd: String(item.dateEnd || '').trim(),
             summary: String(item.summary || '').trim(),
             result: String(item.result || '').trim(),
+            note: String(item.note || '').trim(),
             images: Array.isArray(item.images) ? item.images.slice(0, 20).map(String) : [],
             priority: PRIORITIES.includes(item.priority) ? item.priority : '中',
             status: STATUSES.includes(item.status) ? item.status : 'inbox',
@@ -651,7 +653,7 @@ const server = http.createServer((req, res) => {
           const items = readItems();
           const idx = items.findIndex((i) => i.id === id);
           if (idx === -1) return sendJSON(res, 404, { error: 'not found' });
-          const allowed = ['source', 'summary', 'priority', 'status', 'person', 'attribution', 'dateStart', 'dateEnd', 'result', 'images'];
+          const allowed = ['source', 'summary', 'priority', 'status', 'person', 'attribution', 'dateStart', 'dateEnd', 'result', 'images', 'note'];
           for (const k of allowed) {
             if (patch[k] === undefined) continue;
             if (k === 'priority' && !PRIORITIES.includes(patch[k])) continue;
