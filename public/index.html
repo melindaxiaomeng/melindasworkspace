@@ -198,8 +198,15 @@
   .card .ai-box .ai-header {
     display: flex; align-items: center; gap: 6px;
     padding: 9px 13px; background: linear-gradient(135deg, #eef3ff, #f5f8ff);
-    border-bottom: 1px solid #e8effa;
+    cursor: pointer; user-select: none;
   }
+  .card .ai-box .ai-header:hover { background: linear-gradient(135deg, #e7efff, #eef3ff); }
+  .card .ai-box .ai-chevron {
+    width: 14px; height: 14px; margin-left: 2px; flex-shrink: 0;
+    color: #2b56c9; transition: transform .2s ease;
+  }
+  .card .ai-box.collapsed .ai-header .ai-chevron { transform: rotate(-90deg); }
+  .card .ai-box.collapsed .ai-body { display: none; }
   .card .ai-box .ai-header-icon {
     width: 20px; height: 20px; border-radius: 50%;
     background: linear-gradient(135deg, var(--accent), #6b8cff); display: flex;
@@ -1148,13 +1155,16 @@ async function aiDiagnose(it, box) {
     const checklist = (r.checklist || []).map((c) => '<li>' + escapeHtml(c) + '</li>').join('');
     box.innerHTML =
       '<div class="ai-header"><div class="ai-header-icon"><svg viewBox="0 0 24 24"><path d="M12 2a2 2 0 012 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 017 7h1a1 1 0 011 1v3a1 1 0 01-1 1h-1v1a2 2 0 01-2 2H5a2 2 0 01-2-2v-1H2a1 1 0 01-1-1v-3a1 1 0 011-1h1a7 7 0 017-7h1V5.73c-.6-.34-1-.99-1-1.73a2 2 0 012-2zM7.5 13A1.5 1.5 0 006 14.5 1.5 1.5 0 007.5 16a1.5 1.5 0 000-3zm9 0a1.5 1.5 0 00-1.5 1.5 1.5 1.5 0 001.5 1.5 1.5 1.5 0 001.5-1.5A1.5 1.5 0 0016.5 13z"/></svg></div><h5>AI 诊断与排查建议</h5>' +
-      (r.mock ? '<span class="ai-badge">Mock 模式</span>' : '') + '</div>' +
+      (r.mock ? '<span class="ai-badge">Mock 模式</span>' : '') +
+      '<svg class="ai-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></div>' +
       '<div class="ai-body">' +
       (r.analysis ? '<div class="ai-section-title">分析</div><div class="ai-analysis">' + escapeHtml(r.analysis) + '</div>' : '') +
       (checklist ? '<div class="ai-section-title">排查 Checklist</div><ul>' + checklist + '</ul>' : '') +
       (r.suggestion ? '<div class="ai-section-title">处理建议</div><div class="ai-analysis">' + escapeHtml(r.suggestion) + '</div>' : '') +
       (refs ? '<div class="ai-section-title">类似问题处理参考</div><div class="ai-refs">' + refs + '</div>' : '') +
       '</div>';
+    const aiHead = box.querySelector('.ai-header');
+    if (aiHead) aiHead.addEventListener('click', () => box.classList.toggle('collapsed'));
   } catch (e) {
     box.innerHTML = '<div class="ai-loading">诊断失败：' + escapeHtml(e.message || String(e)) + '</div>';
   } finally {
