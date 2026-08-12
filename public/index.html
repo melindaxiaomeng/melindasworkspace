@@ -361,6 +361,11 @@
   .report-item-info .ri-title { font-size: 13px; font-weight: 600; color: #1e293b; }
   .report-item-info .ri-desc { font-size: 11.5px; color: #64748b; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .report-item-date { font-size: 11.5px; color: #94a3b8; flex-shrink: 0; }
+  .report-item .ri-chevron { width: 16px; height: 16px; flex-shrink: 0; color: #94a3b8; transition: transform .2s ease; margin-left: 4px; }
+  .report-item.open .ri-chevron { transform: rotate(-90deg); color: #2b56c9; }
+  .report-item-body { padding: 0 16px 14px; }
+  .report-item-body .report-card { margin-top: 4px; }
+  .report-item-body .report-card-head { cursor: default; }
   /* 报告空态 */
   .report-empty { text-align: center; padding: 50px 20px; color: #94a3b8; }
   .report-empty .report-empty-icon { font-size: 40px; margin-bottom: 10px; }
@@ -1660,11 +1665,34 @@ function renderReports() {
         '<div class="ri-desc">' + (r.summary || '—') + '</div>' +
       '</div>' +
       '<span class="report-item-date">' + fmtDate(r.createdAt) + '</span>' +
+      '<svg class="ri-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>' +
       '</div>';
   }).join('');
   list.querySelectorAll('.report-item').forEach((el) => {
-    el.addEventListener('click', () => showReport(el.dataset.id));
+    el.addEventListener('click', (e) => {
+      if (e.target.closest('.report-item-body')) return; // 点击内容区不收起
+      toggleReportItem(el);
+    });
   });
+}
+
+function toggleReportItem(el) {
+  const r = reports.find((x) => x.id === el.dataset.id);
+  if (!r) return;
+  const body = el.querySelector('.report-item-body');
+  if (body) { body.remove(); el.classList.remove('open'); return; }
+  el.classList.add('open');
+  const wrap = document.createElement('div');
+  wrap.className = 'report-item-body';
+  wrap.innerHTML =
+    '<div class="report-card">' +
+      '<div class="report-card-head">' +
+        '<h3>' + (r.type === 'weekly' ? '📋 周报' : '📝 日报') + ' · ' + escapeHtml(r.title || '') + '</h3>' +
+        '<span class="report-meta">生成于 ' + fmtDate(r.createdAt) + (r.mock ? ' · Mock模式' : '') + '</span>' +
+      '</div>' +
+      '<div class="report-card-body"><div class="md">' + renderMarkdown(r.content || '*暂无内容*') + '</div></div>' +
+    '</div>';
+  el.appendChild(wrap);
 }
 
 function showReport(id) {
@@ -1700,7 +1728,8 @@ $('#genReportBtn').addEventListener('click', async () => {
     // 插入到列表头部
     reports.unshift(r);
     renderReports();
-    showReport(r.id);
+    const newEl = $('#reportsList').querySelector('.report-item[data-id="' + r.id + '"]');
+    if (newEl) toggleReportItem(newEl);
   } catch (e) { alert('生成失败：' + (e.message || e)); }
   finally { btn.disabled = false; btn.textContent = old; }
 });
