@@ -16,6 +16,8 @@ const AI_EMBED_API_KEY = process.env.AI_EMBED_API_KEY || AI_API_KEY;
 const AI_EMBED_BASE_URL = (process.env.AI_EMBED_BASE_URL || '').replace(/\/$/, '');
 const AI_EMBED_MODEL = process.env.AI_EMBED_MODEL || '';
 const AI_MOCK = process.env.AI_MOCK === '1';
+// 机器人抓取（飞书/企微 webhook）接入密钥：设置后 /api/ingest 必须带 X-Ingest-Secret 头
+const INGEST_SECRET = process.env.INGEST_SECRET || '';
 const ROOT = __dirname;
 const PUBLIC_DIR = path.join(ROOT, 'public');
 const DATA_DIR = path.join(ROOT, 'data');
@@ -372,6 +374,75 @@ async function summarize(item) {
   return { summary: String(raw || '').trim().replace(/^["'】]+|["'】]+$/g, '') };
 }
 
+/* —— AI 从群消息中提炼结构化需求/Bug —— */
+const EXTRACT_CATEGORIES = ['功能Bug', '新需求', '接口与数据异常', '操作咨询'];
+const EXTRACT_MODULES = ['DMP', 'SAAS系统', '数据报表', '网盟Mapping', '支付结算', '其他'];
+
+function mockExtract(text, sender, group) {
+  return {
+    mock: true,
+    title: String(text || '').slice(0, 15) || '（群消息）',
+    category: '新需求',
+    module: '其他',
+    priority: '中',
+    aiAnalysis: '【Mock 模式】已识别为一条群消息需求线索（配置 AI_API_KEY 后获得真实结构化提取）。原始内容：' + String(text || '').slice(0, 60),
+  };
+}
+
+async function extractMessage(text, sender, group) {
+  const rawText = String(text || '').trim();
+  if (!rawText) return { error: 'text 不能为空' };
+  if (AI_MOCK) return mockExtract(rawText, sender, group);
+  if (!AI_API_KEY) return { error: 'AI_API_KEY 未配置' };
+  const sys = '你是 SaaS 系统的需求与 Bug 分析助手。请从群聊消息中识别功能 Bug、报错异常、用户新需求或优化建议，并输出结构化 JSON。判断日常闲聊/确认类消息时 is_need 为 false。只输出 JSON，不要解释。';
+  const user =
+    '群聊消息如下：\n"""' + rawText + '"""\n' +
+    '发送人：' + (sender || '未知') + '\n群：' + (group || '默认群') + '\n\n' +
+    '请输出 JSON：{\n' +
+    '  "is_need": true 或 false,\n' +
+    '  "title": "15字以内精简摘要",\n' +
+    '  "category": "功能Bug" | "新需求" | "接口与数据异常" | "操作咨询",\n' +
+    '  "module": "DMP" | "SAAS系统" | "数据报表" | "网盟Mapping" | "支付结算" | "其他",\n' +
+    '  "priority": "高" | "中" | "低",\n' +
+    '  "aiAnalysis": "核心问题分析与处理建议（2-4 句）"\n' +
+    '}';
+  let raw;
+  try { raw = await aiChat(sys, user, { json: true, temperature: 0.2 }); } catch (e) { return { error: e.message }; }
+  let parsed = {};
+  try { parsed = JSON.parse(String(raw || '{}')); } catch (e) { parsed = {}; }
+  if (parsed.is_need === false) return { is_need: false };
+  // 兜底：枚举值落在允许范围
+  const title = String(parsed.title || rawText.slice(0, 15) || '（群消息）').trim();
+  const category = EXTRACT_CATEGORIES.includes(parsed.category) ? parsed.category : '';
+  const moduleV = EXTRACT_MODULES.includes(parsed.module) ? parsed.module : '';
+  const priority = ['高', '中', '低'].includes(parsed.priority) ? parsed.priority : '中';
+  const aiAnalysis = String(parsed.aiAnalysis || '').trim();
+  return { is_need: true, title, category, module: moduleV, priority, aiAnalysis };
+}
+
+// 飞书 / 企微原生事件 → 统一 { text, sender, group }（尽力提取；不匹配时返回空 text）
+function normalizeFeishu(p) {
+  try {
+    const ev = p.event || {};
+    const msg = ev.message || {};
+    let text = '';
+    if (msg.content) {
+      const c = JSON.parse(msg.content);
+      text = c.text || (c.title || '');
+    }
+    const sender = (ev.sender && (ev.sender.sender_id && ev.sender.sender_id.open_id)) || ev.sender_id || '';
+    const group = (msg.chat_id) || (ev.chat_id) || '';
+    return { text, sender: String(sender), group: String(group), source: '飞书群' };
+  } catch (e) { return { text: '', sender: '', group: '', source: '飞书群' }; }
+}
+function normalizeWecom(p) {
+  // 企微自建应用回调（JSON 形态，text 消息）
+  const text = p.Content || p.text || (p.msg && p.msg.content) || '';
+  const sender = p.FromUserName || p.sender || '';
+  const group = p.ChatId || p.chat_id || '';
+  return { text: String(text), sender: String(sender), group: String(group), source: '企微群' };
+}
+
 /* —— AI 生成日报 / 周报 —— */
 async function generateReport(opts) {
   const type = String(opts.type || 'daily'); // 'daily' | 'weekly'
@@ -593,6 +664,55 @@ const server = http.createServer((req, res) => {
           return;
         }
 
+        // —— AI 从群消息结构化提取（不落库）——
+        if (req.method === 'POST' && pathname === '/api/ai/extract') {
+          (async () => {
+            try {
+              const p = JSON.parse(body || '{}');
+              const r = await extractMessage(p.text || '', p.sender || '', p.group || '');
+              sendJSON(res, 200, r);
+            } catch (e) { sendJSON(res, 502, { error: e.message }); }
+          })();
+          return;
+        }
+
+        // —— 机器人抓取落库：飞书/企微等把群消息 POST 到这里 ——
+        // 安全：若配置了 INGEST_SECRET，必须带 X-Ingest-Secret 头且与之相等
+        function ingestSecretOk(req) {
+          if (!INGEST_SECRET) return true;
+          return (req.headers['x-ingest-secret'] || '') === INGEST_SECRET;
+        }
+        if (req.method === 'POST' && (pathname === '/api/ingest' || pathname === '/api/ingest/feishu' || pathname === '/api/ingest/wecom')) {
+          (async () => {
+            if (!ingestSecretOk(req)) return sendJSON(res, 401, { error: '缺少/错误的 X-Ingest-Secret' });
+            try {
+              let p = JSON.parse(body || '{}');
+              // 飞书/企微原生事件的轻量适配：把它们转成统一 { text, sender, group }
+              if (pathname === '/api/ingest/feishu') p = normalizeFeishu(p);
+              else if (pathname === '/api/ingest/wecom') p = normalizeWecom(p);
+              const ex = await extractMessage(p.text || '', p.sender || '', p.group || '');
+              if (ex.error) return sendJSON(res, 400, ex);
+              if (ex.is_need === false) return sendJSON(res, 200, { status: 'filtered_out', reason: 'AI 判定为非需求闲聊' });
+              const items = readItems();
+              const newItem = buildNewItem({
+                summary: ex.title,
+                category: ex.category,
+                module: ex.module,
+                priority: ex.priority,
+                reporter: p.sender || '',
+                source: p.source || p.group || '机器人抓取',
+                rawMessage: p.text || '',
+                aiAnalysis: ex.aiAnalysis,
+                status: 'inbox',
+              });
+              items.push(newItem);
+              writeItems(items);
+              return sendJSON(res, 201, newItem);
+            } catch (e) { sendJSON(res, 502, { error: e.message }); }
+          })();
+          return;
+        }
+
         // —— AI 生成报告（日报 / 周报）——
         if (req.method === 'POST' && pathname === '/api/ai/report') {
           (async () => {
@@ -627,31 +747,35 @@ const server = http.createServer((req, res) => {
         }
 
         // 新增
+function buildNewItem(raw, now) {
+  now = now || new Date().toISOString();
+  return {
+    id: 'id_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+    source: String(raw.source || '').trim(),
+    person: String(raw.person || '').trim(),
+    attribution: String(raw.attribution || '').trim(),
+    dateStart: String(raw.dateStart || '').trim(),
+    dateEnd: String(raw.dateEnd || '').trim(),
+    summary: String(raw.summary || '').trim(),
+    result: String(raw.result || '').trim(),
+    note: String(raw.note || '').trim(),
+    rawMessage: String(raw.rawMessage || '').trim(),
+    category: String(raw.category || '').trim(),
+    module: String(raw.module || '').trim(),
+    reporter: String(raw.reporter || '').trim(),
+    aiAnalysis: String(raw.aiAnalysis || '').trim(),
+    images: Array.isArray(raw.images) ? raw.images.slice(0, 20).map(String) : [],
+    priority: PRIORITIES.includes(raw.priority) ? raw.priority : '中',
+    status: STATUSES.includes(raw.status) ? raw.status : 'inbox',
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
         if (req.method === 'POST' && pathname === '/api/items') {
           const item = JSON.parse(body || '{}');
           const items = readItems();
-          const now = new Date().toISOString();
-          const newItem = {
-            id: 'id_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
-            source: String(item.source || '').trim(),
-            person: String(item.person || '').trim(),
-            attribution: String(item.attribution || '').trim(),
-            dateStart: String(item.dateStart || '').trim(),
-            dateEnd: String(item.dateEnd || '').trim(),
-            summary: String(item.summary || '').trim(),
-            result: String(item.result || '').trim(),
-            note: String(item.note || '').trim(),
-            rawMessage: String(item.rawMessage || '').trim(),
-            category: String(item.category || '').trim(),
-            module: String(item.module || '').trim(),
-            reporter: String(item.reporter || '').trim(),
-            aiAnalysis: String(item.aiAnalysis || '').trim(),
-            images: Array.isArray(item.images) ? item.images.slice(0, 20).map(String) : [],
-            priority: PRIORITIES.includes(item.priority) ? item.priority : '中',
-            status: STATUSES.includes(item.status) ? item.status : 'inbox',
-            createdAt: now,
-            updatedAt: now,
-          };
+          const newItem = buildNewItem(item);
           items.push(newItem);
           writeItems(items);
           return sendJSON(res, 201, newItem);
