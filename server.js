@@ -47,6 +47,12 @@ function normalizeItem(it) {
   if (it && it.dateEnd === undefined) it.dateEnd = '';
   if (it && !Array.isArray(it.images)) it.images = [];
   if (it && it.note === undefined) it.note = '';
+  // PRD 二期字段（机器人抓取 / AI 提取用）
+  if (it && it.rawMessage === undefined) it.rawMessage = '';
+  if (it && it.category === undefined) it.category = '';
+  if (it && it.module === undefined) it.module = '';
+  if (it && it.reporter === undefined) it.reporter = '';
+  if (it && it.aiAnalysis === undefined) it.aiAnalysis = '';
   return it;
 }
 
@@ -635,6 +641,11 @@ const server = http.createServer((req, res) => {
             summary: String(item.summary || '').trim(),
             result: String(item.result || '').trim(),
             note: String(item.note || '').trim(),
+            rawMessage: String(item.rawMessage || '').trim(),
+            category: String(item.category || '').trim(),
+            module: String(item.module || '').trim(),
+            reporter: String(item.reporter || '').trim(),
+            aiAnalysis: String(item.aiAnalysis || '').trim(),
             images: Array.isArray(item.images) ? item.images.slice(0, 20).map(String) : [],
             priority: PRIORITIES.includes(item.priority) ? item.priority : '中',
             status: STATUSES.includes(item.status) ? item.status : 'inbox',
@@ -653,7 +664,7 @@ const server = http.createServer((req, res) => {
           const items = readItems();
           const idx = items.findIndex((i) => i.id === id);
           if (idx === -1) return sendJSON(res, 404, { error: 'not found' });
-          const allowed = ['source', 'summary', 'priority', 'status', 'person', 'attribution', 'dateStart', 'dateEnd', 'result', 'images', 'note'];
+          const allowed = ['source', 'summary', 'priority', 'status', 'person', 'attribution', 'dateStart', 'dateEnd', 'result', 'images', 'note', 'rawMessage', 'category', 'module', 'reporter', 'aiAnalysis'];
           for (const k of allowed) {
             if (patch[k] === undefined) continue;
             if (k === 'priority' && !PRIORITIES.includes(patch[k])) continue;
