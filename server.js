@@ -630,8 +630,9 @@ const server = http.createServer((req, res) => {
     if (pathname === '/api/config') {
       return sendJSON(res, 200, { authRequired: !!API_TOKEN, aiEnabled: !!(AI_API_KEY || AI_MOCK) });
     }
-    // 应用层令牌鉴权
-    if (API_TOKEN && !authOk(req)) {
+    // 应用层令牌鉴权（机器人抓取接口 /api/ingest* 由 INGEST_SECRET 独立鉴权，不受全局 Bearer 限制）
+    const isIngest = req.method === 'POST' && (pathname === '/api/ingest' || pathname === '/api/ingest/feishu' || pathname === '/api/ingest/wecom');
+    if (!isIngest && API_TOKEN && !authOk(req)) {
       return sendJSON(res, 401, { error: 'unauthorized' });
     }
     // 图片上传（二进制，单独处理，不能走字符串 body）
@@ -694,6 +695,10 @@ const server = http.createServer((req, res) => {
               if (ex.error) return sendJSON(res, 400, ex);
               if (ex.is_need === false) return sendJSON(res, 200, { status: 'filtered_out', reason: 'AI 判定为非需求闲聊' });
               const items = readItems();
+              const srcKey = p.source || p.group || '机器人抓取';
+              // 去重：相同发送人 + 相同原文 + 相同来源 已存在则跳过，防止定时轮询重复写入
+              const dup = items.find((it) => it.rawMessage === (p.text || '') && (it.reporter || '') === (p.sender || '') && (it.source || '') === srcKey);
+              if (dup) return sendJSON(res, 200, { status: 'duplicate', id: dup.id });
               const newItem = buildNewItem({
                 summary: ex.title,
                 category: ex.category,
